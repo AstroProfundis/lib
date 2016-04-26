@@ -96,7 +96,7 @@ EOF
 		
 		# eMMC install
 		# fix that we can have one exlude file
-		cp -R /boot/ /boot/mnt/rootfs
+		cp -R /boot/ /mnt/rootfs
 		# determine u-boot and write it
 		name_of_ubootpackage=$(aptitude versions '~i linux-u-boot*'|head -1| awk '{print $2}' | sed 's/linux-u-boot-//g' | cut -f1 -d"-")
 		version_of_ubootpkg=$(aptitude versions '~i linux-u-boot*'| tail -1 |  awk '{print $2}')
@@ -182,7 +182,7 @@ formatemmc()
 	parted -s $1 -- mkpart primary ext4  2048s -1s
 	partprobe $1
 	# create fs
-	mkfs.ext4 -q $1"p1"
+	mkfs.ext4 -qF $1"p1" >/dev/null 2>&1
 	
 }
 
