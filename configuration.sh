@@ -48,8 +48,9 @@ case $LINUXFAMILY in
 		BOOTLOADER="git://git.denx.de/u-boot.git"
 		BOOTSOURCE="u-boot"
 		# latest stable v2016.03 broken gmac on sun7i, fixing it for DEFAULT and NEXT
-		#UBOOT_DEFAULT_BRANCH="v"$(git ls-remote git://git.denx.de/u-boot.git | grep -v rc | grep -v "\^" | tail -1 | cut -d "v" -f 2)
+		#UBOOT_DEFAULT_BRANCH="v"$(git ls-remote git://git.denx.de/u-boot.git | grep -v rc | grep -v "\^" | tail -1 | cut -d "v" -f 2)		
 		UBOOT_DEFAULT_BRANCH="v2016.01"
+		if [[ $BOARD == lime* || $BOARD == micro ]]; then UBOOT_DEFAULT_BRANCH="v2016.05-rc1"; fi 
 		UBOOT_NEXT_BRANCH=$UBOOT_DEFAULT_BRANCH
 		UBOOT_DEV_BRANCH=""
 	;;
@@ -206,7 +207,7 @@ esac
 [[ -z $CPUMIN && $LINUXFAMILY == sun*i ]] && CPUMIN="480000" && CPUMAX="1010000" && GOVERNOR="interactive"
 [[ $BRANCH != "default" && $LINUXFAMILY == sun*i ]] && GOVERNOR="ondemand"
 [[ -z $CPUMIN && $LINUXFAMILY == odroidxu4 ]] && CPUMIN="600000" && CPUMAX="2000000" && GOVERNOR="conservative"
-[[ -z $CPUMIN && $LINUXFAMILY == odroidc1 ]] && CPUMIN="600000" && CPUMAX="1600000" && GOVERNOR="interactive"
+[[ -z $CPUMIN && $LINUXFAMILY == odroidc1 ]] && CPUMIN="504000" && CPUMAX="1728000" && GOVERNOR="interactive"
 [[ -z $CPUMIN && $LINUXFAMILY == cubox ]] && CPUMIN="396000" && CPUMAX="996000" && GOVERNOR="interactive"
 [[ -z $CPUMIN && $LINUXFAMILY == s500 ]] && CPUMIN="408000" && CPUMAX="1104000" && GOVERNOR="interactive"
 [[ -z $CPUMIN && $LINUXFAMILY == marvell ]] && CPUMIN="800000" && CPUMAX="1600000" && GOVERNOR="ondemand"

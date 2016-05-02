@@ -279,6 +279,8 @@ find_toolchain()
 	local var_name=$2
 	local dist=10
 	local toolchain=""
+	# extract target major.minor version from expression
+	local target_ver=$(grep -oE "[[:digit:]].[[:digit:]]" <<< "$expression")
 	for dir in $SRC/toolchains/*/; do
 		# check if is a toolchain for current $ARCH
 		[[ ! -f ${dir}bin/${COMPILER}gcc ]] && continue
@@ -286,8 +288,6 @@ find_toolchain()
 		local gcc_ver=$(${dir}bin/${COMPILER}gcc -dumpversion | grep -oE "^[[:digit:]].[[:digit:]]")
 		# check if toolchain version satisfies requirement
 		awk "BEGIN{exit ! ($gcc_ver $expression)}" || continue
-		# extract target major.minor version from expression
-		local target_ver=$(grep -oE "[[:digit:]].[[:digit:]]" <<< "$expression")
 		# check if found version is the closest to target
 		local d=$(awk '{x = $1 - $2}{printf "%.1f\n", (x > 0) ? x : -x}' <<< "$target_ver $gcc_ver")
 		if awk "BEGIN{exit ! ($d < $dist)}" ; then
@@ -338,7 +338,7 @@ advanced_patch () {
 	# apply patches
 	for name in "${names_s[@]}"; do
 		for dir in "${dirs[@]}"; do
-			if [[ -f $dir/$name || -L $dir/$name ]]; then
+			if [[ -f $dir/$name ]]; then
 				if [[ -s $dir/$name ]]; then
 					process_patch_file "$dir/$name" "$description"
 				else
@@ -369,9 +369,9 @@ process_patch_file() {
 	echo "$patch $description" >> $DEST/debug/install.log
 	patch --batch --silent -p1 -N < $patch >> $DEST/debug/install.log 2>&1
 
-	if [ $? -ne 0 ]; then
+	if [[ $? -ne 0 ]]; then
 		display_alert "... $(basename $patch)" "failed" "wrn";
-		if [[ $EXIT_PATCHING_ERROR == "yes" ]]; then exit_with_error "Aborting due to" "EXIT_PATCHING_ERROR"; fi
+		if [[ $EXIT_PATCHING_ERROR == yes ]]; then exit_with_error "Aborting due to" "EXIT_PATCHING_ERROR"; fi
 	else
 		display_alert "... $(basename $patch)" "succeeded" "info"
 	fi

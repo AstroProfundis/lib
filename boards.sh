@@ -55,6 +55,14 @@ install_board_specific (){
 
 	fi
 
+	if [[ $BOARD == "odroidc2" ]] ; then
+		sed -i 's/MODULES=.*/MODULES="meson-ir"/' $CACHEDIR/sdcard/etc/lirc/hardware.conf
+		sed -i 's/LOAD_MODULES=.*/LOAD_MODULES="true"/' $CACHEDIR/sdcard/etc/lirc/hardware.conf
+		sed -i 's/DEVICE=.*/DEVICE="\/dev\/lirc0"/' $CACHEDIR/sdcard/etc/lirc/hardware.conf
+		sed -i 's/LIRCD_ARGS=.*/LIRCD_ARGS="--uinput"/' $CACHEDIR/sdcard/etc/lirc/hardware.conf
+		cp $SRC/lib/config/lirc.conf.odroidc2 $CACHEDIR/sdcard/etc/lirc/lircd.conf
+	fi
+	
 	# Armada
 	if [[ $BOARD == "armada" ]] ; then
 		chroot $CACHEDIR/sdcard /bin/bash -c "apt-get -y -qq remove --auto-remove lirc linux-sound-base alsa-base alsa-utils bluez>/dev/null 2>&1"
@@ -150,14 +158,14 @@ install_board_specific (){
 	fi
 
 	# if we have a special fat boot partition, alter rootfs=
-	if [[ "$BOOTSIZE" -gt "0" ]]; then
+	if [[ $BOOTSIZE -gt 0 ]]; then
 		display_alert "Adjusting boot scripts" "$BOARD" "info"
-		[[ -f "$CACHEDIR/sdcard/boot/boot.cmd" ]] && sed -e 's/p1 /p2 /g' -i $CACHEDIR/sdcard/boot/boot.cmd
+		[[ -f $CACHEDIR/sdcard/boot/boot.cmd ]] && sed -e 's/p1 /p2 /g' -i $CACHEDIR/sdcard/boot/boot.cmd
 		echo "/dev/mmcblk0p1        /boot   vfat    defaults        0       0" >> $CACHEDIR/sdcard/etc/fstab
 	fi
 
 	# convert to uboot compatible script
-	[[ -f "$CACHEDIR/sdcard/boot/boot.cmd" ]] && \
+	[[ -f $CACHEDIR/sdcard/boot/boot.cmd ]] && \
 	mkimage -C none -A arm -T script -d $CACHEDIR/sdcard/boot/boot.cmd $CACHEDIR/sdcard/boot/boot.scr >> /dev/null
 
 	# initial date for fake-hwclock
