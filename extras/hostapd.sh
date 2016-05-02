@@ -25,7 +25,7 @@ compile_hostapd ()
 		display_alert "Updating sources" "hostapd" "info"		
 	else
 		display_alert "Downloading sources" "hostapd" "info"		
-		git clone -q git://w1.fi/hostap.git $CACHEDIR/$tmpdir >> $DEST/debug/hostapd-build.log 2>&1
+		git clone -q https://github.com/AstroProfundis/hostap.git $CACHEDIR/$tmpdir >> $DEST/debug/hostapd-build.log 2>&1
 	fi
 
 
