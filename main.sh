@@ -166,7 +166,7 @@ fi
 # sync clock
 if [[ $SYNC_CLOCK != no ]]; then
 	display_alert "Syncing clock" "host" "info"
-	eval ntpdate -s ${NTP_SERVER:- time.ijs.si}
+	eval ntpdate -s ${NTP_SERVER:- pool.ntp.org}
 fi
 start=`date +%s`
 

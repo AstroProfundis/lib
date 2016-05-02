@@ -87,7 +87,7 @@ if [ -f "$cache_fname" ]; then
 	display_alert "Extracting $RELEASE from cache" "$diff days old" "info"
 	pv -p -b -r -c -N "$(basename $cache_fname)" "$cache_fname" | pigz -dc | tar xp -C $CACHEDIR/sdcard/
 	rm $CACHEDIR/sdcard/etc/resolv.conf
-	echo "nameserver 8.8.8.8" > $CACHEDIR/sdcard/etc/resolv.conf
+	echo "nameserver 223.5.5.5" > $CACHEDIR/sdcard/etc/resolv.conf
 	if [ "$diff" -gt "3" ]; then
 		chroot $CACHEDIR/sdcard /bin/bash -c "apt-get update" | dialog --backtitle "$backtitle" --title "Force package update ..." --progressbox $TTY_Y $TTY_X
 	fi
@@ -98,7 +98,7 @@ if [ ! -f "$cache_fname" ]; then
 
 # debootstrap base system
 [[ -n $PACKAGE_LIST_EXCLUDE ]] && local package_exclude="--exclude="${PACKAGE_LIST_EXCLUDE// /,}
-[[ $DISTRIBUTION == "Debian" ]] && local redir="http://httpredir.debian.org/debian/"
+[[ $DISTRIBUTION == "Debian" ]] && local redir="http://mirrors.tuna.tsinghua.edu.cn/debian/"
 debootstrap --include=openssh-server $package_exclude --arch=$ARCH --foreign $RELEASE $CACHEDIR/sdcard/ $redir | dialog --backtitle "$backtitle" --title "Debootstrap $DISTRIBUTION $RELEASE base system to image template ..." --progressbox $TTY_Y $TTY_X
 
 # we need emulator for second stage

@@ -132,9 +132,9 @@ create_rootfs_cache()
 		# apt-cacher-ng mirror configurarion
 		[[ -n $APT_PROXY_ADDR ]] && display_alert "Using custom apt-cacher-ng address" "$APT_PROXY_ADDR" "info"
 		if [[ $RELEASE == trusty || $RELEASE == xenial ]]; then
-			local apt_mirror="http://${APT_PROXY_ADDR:-localhost:3142}/mirrors.aliyun.com/ubuntu/"
+			local apt_mirror="http://${APT_PROXY_ADDR:-localhost:3142}/mirrors.tuna.tsinghua.edu.cn/ubuntu/"
 		else
-			local apt_mirror="http://${APT_PROXY_ADDR:-localhost:3142}/mirrors.aliyun.com/debian"
+			local apt_mirror="http://${APT_PROXY_ADDR:-localhost:3142}/mirrors.tuna.tsinghua.edu.cn/debian/"
 		fi
 		# apt-cacher-ng apt-get proxy parameter
 		local apt_extra='-o Acquire::http::Proxy="http://${APT_PROXY_ADDR:-localhost:3142}"'
