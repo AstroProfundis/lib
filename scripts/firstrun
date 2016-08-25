@@ -22,6 +22,7 @@ if [ "X$1" != "Xstart" ]; then
 fi
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Log=/var/log/armhwinfo.log
 
 # create helper script to set swap settings
 cat > /tmp/create_swap.sh <<EOT
@@ -32,17 +33,20 @@ cat > /tmp/create_swap.sh <<EOT
 # SSH Keys creation
 rm -f /etc/ssh/ssh_host*
 dpkg-reconfigure openssh-server >/dev/null 2>&1
+echo -e "### [firstrun] Recreated SSH keys" >>${Log}
 MEMTOTAL=$(( $(awk -F" " '/^MemTotal/ {print $2}' </proc/meminfo) / 1024 ))
 FREESIZE=\$(df -hm / | awk '/\// {print \$(NF-2)}')
-if [[ ! -f "/var/swap" && "\$FREESIZE" -gt "132" ]]; then
-fallocate -l 128M /var/swap >/dev/null 2>&1
-if [ $? -eq 1 ]; then dd if=/dev/zero of=/var/swap bs=1M count=128 status=noxfer >/dev/null 2>&1; fi
-chown root:root /var/swap
-chmod 0600 /var/swap
-mkswap /var/swap >/dev/null 2>&1
-swapon /var/swap >/dev/null 2>&1
-if ! grep -q swap /etc/fstab; then echo "/var/swap none swap sw 0 0" >> /etc/fstab; fi 
-if ! grep -q swap /etc/sysctl.conf; then echo "vm.swappiness=0" >> /etc/sysctl.conf; fi 
+SWAPFILE=/var/swap
+if [[ ! -f "\$SWAPFILE" && "\$FREESIZE" -gt "132" ]]; then
+fallocate -l 128M \$SWAPFILE >/dev/null 2>&1
+if [ $? -eq 1 ]; then dd if=/dev/zero of=\$SWAPFILE bs=1M count=128 status=noxfer >/dev/null 2>&1; fi
+chown root:root \$SWAPFILE
+chmod 0600 \$SWAPFILE
+mkswap \$SWAPFILE >/dev/null 2>&1
+swapon \$SWAPFILE >/dev/null 2>&1
+if ! grep -q swap /etc/fstab; then echo "\$SWAPFILE none swap sw 0 0" >> /etc/fstab; fi
+if ! grep -q swap /etc/sysctl.conf; then echo "vm.swappiness=0" >> /etc/sysctl.conf; fi
+echo -e "\n### [firstrun] Created 128MB emergency swap as \$SWAPFILE" >>${Log}
 fi
 # RAMLOG
 if [[ "$(apt-cache policy ramlog | grep Installed)" != "" ]]; then
@@ -61,16 +65,14 @@ fi
 while [ -f /tmp/firstrun_running ]; do sleep 1; done
 if [ -f "/var/run/reboot" ]; then reboot; fi
 rm -f /tmp/create_swap.sh
+sync &
 EOT
 chmod +x /tmp/create_swap.sh
 
-collect_informations() {
+collect_information() {
 	# get some info about the board
-	CURKERNE=$(uname -r | sed 's/\([0-9]\+\.[0-9]\+\)\..*/\1/')
+	source /etc/armbian-release
 	DISTRIBUTION=$(lsb_release -cs)
-	HARDWARE=$(awk '/Hardware/ {print $3}' </proc/cpuinfo)
-	# Mainline kernel fix
-	[ -f /proc/device-tree/model ] && HARDWARE=$(awk '/Hardware/ {print $4}' </proc/cpuinfo)
 	case ${DISTRIBUTION} in
 		wheezy)
 			root_device=$(mountpoint -d /)
@@ -90,89 +92,29 @@ collect_informations() {
 			rootfstype=$2
 			;;
 	esac
-	set -e
-} # collect_informations
+} # collect_information
 
-display_alert() {
-	if [ "${DISTRIBUTION}" == "wheezy" ]; then
-		echo -e "[\e[0;32m ok \x1B[0m] ${1}" > /dev/tty1
-	elif [ "${DISTRIBUTION}" == "jessie" ]; then
-		echo -e "[\e[0;32m  OK  \x1B[0m] ${1}" > /dev/tty1
-	else
-		echo -e " * ${1}" > /dev/tty1
-	fi
-}
+adjust_sunxi_settings() {
+	# set some mac address for wifi	
+	[[ "$(lsmod | grep 8189fs)" != "" ]] && \
+		(MACADDR=$(printf '00:E0:4C:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]) ; \
+		echo "options 8189fs rtw_initmac=${MACADDR}" > /etc/modprobe.d/8189fs.conf ; \
+		echo -e "\n### [firstrun] Use MAC address ${MACADDR} for Wi-Fi from now" >>${Log})
 
-autodetect_sunxi() {
-	# This function adjusts script.bin, hostname and cpufreq settings based on 
-	# /run/machine.id so that two OS images (one built for GbE H3 devices like
-	# Orange Pi Plus or Banana Pi M2+ and one for the other H3 devices using 
-	# the internal Ethernet PHY or Banana Pro vs. Pi) can be shipped.
-	#
-	# TODO for mainline kernel: Ship with u-boot debs for all Oranges and install
-	# the right one instead of trying to relink script.bin if detecting mainline
-	# kernel [[ -f /proc/device-tree/model ]]
-
-	# trigger red or blue LED as user feedback
-	echo heartbeat >/sys/class/leds/*red*/trigger 2>/dev/null || echo heartbeat >/sys/class/leds/*blue*/trigger 2>/dev/null
+	# set some mac address for BT
+	[[ "$(lsmod | grep bcmdhd)" != "" ]] && \
+		(MACADDR=$(printf '43:29:B1:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]) ; \
+		sed -i "s/^MAC_ADDR=.*/MAC_ADDR=${MACADDR}/" /etc/default/brcm40183 \
+		echo -e "\n### [firstrun] Use MAC address ${MACADDR} for Bluetooth from now" >>${Log})
 	
-	# wait for armhwinfo
-	sleep 3
-	read MACHINE </run/machine.id
-	NEWHOSTNAME="$(echo "${MACHINE}" | tr '[:upper:]' '[:lower:]' | sed -e 's/+/plus/' -e 's/\ //g')"
-	ScriptBinName="$(echo "${NEWHOSTNAME}" | sed -e 's/2mini$/2/g' -e 's/plus2$/plus/g').bin"
-	ScriptBinUsed="$(readlink -f "/boot/script.bin")"
-	case ${MACHINE} in
-		"Banana Pi")
-			ln -sf /boot/bin/bananapi.bin /boot/script.bin
-			;;
-		"Orange Pi+"*)
-			if [ "X${ScriptBinName}" != "X${ScriptBinUsed##*/}" ]; then
-				# wrong detection due to disabled Ethernet on 1st boot
-				ln -sf /boot/bin/orangepi2.bin /boot/script.bin
-				NEWHOSTNAME="orangepi2"
-			fi
-			;;
-		"Orange Pi 2"*)
-			ln -sf /boot/bin/orangepi2.bin /boot/script.bin
-			;;
-		"Orange Pi PC")
-			ln -sf /boot/bin/orangepipc.bin /boot/script.bin
-			;;
-		"Orange Pi One")
-			ln -sf /boot/bin/orangepione.bin /boot/script.bin
-			sed -i -e 's/MAX_SPEED=1296000/MAX_SPEED=1200000/' /etc/default/cpufrequtils
-			;;
-		"Orange Pi Lite")
-			ln -sf /boot/bin/orangepilite.bin /boot/script.bin
-			sed -i -e 's/MAX_SPEED=1296000/MAX_SPEED=1200000/' /etc/default/cpufrequtils
-			;;
-		"Banana Pi M2+")
-			if [ "X${ScriptBinName}" != "X${ScriptBinUsed##*/}" ]; then
-				# wrong detection due to disabled Ethernet on 1st boot
-				ln -sf /boot/bin/orangepipc.bin /boot/script.bin
-				NEWHOSTNAME="orangepipc"
-			fi
-			;;
-		"Beelink X2")
-			ln -sf /boot/bin/beelinkx2.bin /boot/script.bin
-			sed -i -e 's/MIN_SPEED=480000/MIN_SPEED=648000/' \
-			-e 's/MAX_SPEED=1296000/MAX_SPEED=1200000/' /etc/default/cpufrequtils
-			;;
-		"NanoPi M1")
-			ln -sf /boot/bin/nanopim1.fex /boot/script.bin
-			sed -i -e 's/MAX_SPEED=1296000/MAX_SPEED=1200000/' /etc/default/cpufrequtils
-			;;
-	esac
-	echo "${NEWHOSTNAME}" >/etc/hostname
-	sed -i -e "s/^::1         localhost.*/::1         localhost ${NEWHOSTNAME} ip6-localhost ip6-loopback/" \
-		-e "s/^127.0.0.1   localhost.*/127.0.0.1   localhost ${NEWHOSTNAME}/" /etc/hosts
+	# trigger red or blue LED as user feedback
+	echo heartbeat >/sys/class/leds/*red*/trigger 2>/dev/null || echo heartbeat >/sys/class/leds/*blue*/trigger 2>/dev/null	
 	[ -f /etc/wicd/wired-settings.conf ] && \
-		sed -i "s/^dhcphostname =.*/dhcphostname = ${NEWHOSTNAME}/" /etc/wicd/wired-settings.conf && \
-		sed -i "s/wpa_driver =.*/wpa_driver = none/" /etc/wicd/manager-settings.conf
-	[ -f /boot/bin/orangepih3.bin ] && rm /boot/bin/orangepih3.bin
-	touch /var/run/reboot
-} # autodetect_sunxi
+		read HOSTNAME </etc/hostname
+		sed -i "s/^dhcphostname =.*/dhcphostname = ${HOSTNAME}/" /etc/wicd/wired-settings.conf && \
+		sed -i "s/wpa_driver =.*/wpa_driver = none/" /etc/wicd/manager-settings.conf \
+		echo -e "\n### [firstrun] Use ${HOSTNAME} for wicd settings" >>${Log}
+} # adjust_sunxi_settings
 
 do_expand_rootfs() {
 	# get device node for boot media
@@ -191,6 +133,7 @@ do_expand_rootfs() {
 	# this case the value will be ignored and resizing to the whole card size happens.
 	if [ -f "/root/.rootfs_resize" ]; then
 		read RESIZE_VALUE <"/root/.rootfs_resize"
+		ResizeLog="Resize rule ${RESIZE_VALUE} defined for ${root_partition}"
 		case ${RESIZE_VALUE} in
 			*%)
 				# percentage value, we try to use 16MiB to align partitions since this is
@@ -207,6 +150,10 @@ do_expand_rootfs() {
 				;;
 		esac
 	else
+		# Unattended mode. We run a q&d benchmark to be able to identify cards way too slow easily
+		cd /root
+		echo -e "\n### quick iozone test:$(iozone -e -I -a -s 1M -r 4k -i 0 -i 1 -i 2 | grep '^            1024' | sed 's/            1024      //')" >>/var/log/armhwinfo.log
+
 		# check device capacity. If 4GB or below do not use whole card but leave a 5% spare area
 		# to help older cards with wear leveling and garbage collection. In case this reduced card
 		# capacity is less than the actual image capacity this is a clear sign that someone wants
@@ -214,32 +161,68 @@ do_expand_rootfs() {
 		# should know what he's doing)
 		CAPACITY=$(parted ${DEVICE} unit s print -sm | awk -F":" "/^${QUOTED_DEVICE}/ {printf (\"%0d\", \$2 / ( 1024 / \$4 ))}")
 		if [ ${CAPACITY} -lt 4000000 ]; then
-			# we also run a q&d benchmark to be able to identify cards way too slow easily
-			cd /root
-			echo -e "\n### quick iozone test:\c" >>/var/log/armhwinfo.log
-			iozone -e -I -a -s 1M -r 4k -i 0 -i 1 -i 2 | grep '^            1024' | sed 's/            1024      //' >>/var/log/armhwinfo.log
 			SPAREAREA=$(( ${CAPACITY} / 20000 ))
 			LASTSECTOR=$(parted ${DEVICE} unit s print -sm | awk -F":" "/^${QUOTED_DEVICE}/ {print \$2 - (${SPAREAREA} * 1024 * ( 1024 / \$4 ))}")
-			if [ ${LASTSECTOR} -lt ${PARTEND} ]; then unset LASTSECTOR ; fi
+			if [ ${LASTSECTOR} -lt ${PARTEND} ]; then
+				unset LASTSECTOR
+			else
+				ResizeLog="4GB media so leaving 200MB spare area on ${root_partition}"
+			fi
+		elif [ ${CAPACITY} -lt 8000000 ]; then
+			# Leave 2 percent unpartitioned
+			LASTSECTOR=$(( 32 * $(parted ${DEVICE} unit s print -sm | awk -F":" "/^${QUOTED_DEVICE}/ {printf (\"%0d\", ( \$2 * 98 / 3200))}") -1 ))
+			if [ ${LASTSECTOR} -lt ${PARTEND} ]; then
+				unset LASTSECTOR
+			else
+				ResizeLog="8GB media so leaving 2 percent spare area on ${root_partition}"
+			fi
+		else
+			# Leave 1 percent unpartitioned
+            LASTSECTOR=$(( 32 * $(parted ${DEVICE} unit s print -sm | awk -F":" "/^${QUOTED_DEVICE}/ {printf (\"%0d\", ( \$2 * 99 / 3200))}") -1 ))
+			if [ ${LASTSECTOR} -lt ${PARTEND} ]; then
+				unset LASTSECTOR
+			else
+				ResizeLog="Leaving 1 percent spare area on ${root_partition}"
+			fi
 		fi
 	fi
 
 	# Start resizing
-	((echo d; echo $PARTITIONS; echo n; echo p; echo ; echo $STARTFROM; echo ${LASTSECTOR} ; echo w;) | fdisk ${DEVICE}) >/dev/null || true
+	echo -e "\n### [firstrun] ${ResizeLog}. Start resizing Partition now:\n" >>${Log}
+	cat /proc/partitions >>${Log}
+	echo -e "\nExecuting fdisk, fsck and partprobe:" >>${Log}
+	UtilLinuxVersion=$(echo q | fdisk ${DEVICE} | awk -F"util-linux " '/ fdisk / {print $2}')
+	if [ "X${PARTITIONS}" = "X1" ]; then
+		case ${UtilLinuxVersion} in
+			2.27.1*)
+				# if dealing with fdisk from util-linux 2.27.1 we need a workaround for just 1 partition
+				# https://github.com/igorpecovnik/lib/issues/353#issuecomment-224728506
+				((echo d; echo n; echo p; echo ; echo $STARTFROM; echo ${LASTSECTOR} ; echo w;) | fdisk ${DEVICE}) >>${Log} 2>&1 || true
+				;;
+			*)
+				((echo d; echo $PARTITIONS; echo n; echo p; echo ; echo $STARTFROM; echo ${LASTSECTOR} ; echo w;) | fdisk ${DEVICE}) >>${Log} 2>&1 || true
+				;;
+		esac
+	else
+		((echo d; echo $PARTITIONS; echo n; echo p; echo ; echo $STARTFROM; echo ${LASTSECTOR} ; echo w;) | fdisk ${DEVICE}) >>${Log} 2>&1 || true
+	fi
 	s=0	
-	fsck -f $root_partition >/dev/null 2>&1 || true
-	partprobe ${DEVICE} >/dev/null 2>&1 || s=$?
-	resize2fs $root_partition >/dev/null 2>&1 || true
+	fsck -f $root_partition >>${Log} 2>&1 || true
+	partprobe ${DEVICE} >>${Log} 2>&1 || s=$?
+	echo -e "\nNew partition table:\n" >>${Log}
+	cat /proc/partitions >>${Log}
+	echo -e "\nNow executing resize2fs to enlarge ${root_partition} to the maximum:\n" >>${Log}
+	resize2fs $root_partition >>${Log} 2>&1 || true
 	
 	# check whether reboot is necessary for resize2fs to take effect
 	FREESIZE=$(df -hm / | awk '/\// {print $(NF-2)}')
 	if [[ "$DISTRIBUTION" == "wheezy" || "$s" != "0" || "$FREESIZE" -lt "152" ]]; then
 		touch /var/run/reboot
-		display_alert "Automatic reboot is needed. Please wait"
-		update-rc.d resize2fs defaults >/dev/null 2>&1 
+		update-rc.d resize2fs defaults >/dev/null 2>&1
+		echo -e "\n### [firstrun] Automated reboot needed to let /etc/init.d/resize2fs do the job" >>${Log}
 	fi
 	return 0
-}
+} # do_expand_rootfs
 
 check_prerequisits() {
 	for needed_tool in fdisk parted partprobe resize2fs ; do
@@ -249,27 +232,29 @@ check_prerequisits() {
 
 main() {
 	check_prerequisits
-	collect_informations
+	collect_information
 
 	if [[ "$rootfstype" == "ext4" && ! -f "/root/.no_rootfs_resize" ]]; then
-		display_alert "Resizing root filesystem."
 		do_expand_rootfs
 	fi
-
-	display_alert "Starting 128Mb emergency swap area creation."
-	display_alert "Starting SSH keys recreation."
 
 	touch /tmp/firstrun_running
 	/tmp/create_swap.sh &
 
-	if [ "X${HARDWARE}" = "Xsun8i" -o "X${HARDWARE}" = "Xsun7i" ]; then
-		autodetect_sunxi
-	fi
+	# some hardware workarounds
+	case ${LINUXFAMILY} in
+		sun7i|sun8i)
+			adjust_sunxi_settings
+			;;
+		pine64)
+			if [ -z "$(grep ethaddr /boot/uEnv.txt)" ] && [ -f "/sys/class/net/eth0/address" ]; then
+				echo "ethaddr=$(cat /sys/class/net/eth0/address)" >> /boot/uEnv.txt
+			fi
+			;;
+	esac
 
 	update-rc.d -f firstrun remove >/dev/null 2>&1
-	sed -i 's/allow-hotplug\ eth0/auto eth0/' /etc/network/interfaces.default
 	rm /tmp/firstrun_running
 } # main
 
 main
-exit 0

@@ -26,19 +26,21 @@ backtitle="Armbian building script, http://www.armbian.com | Author: Igor Pecovn
 [[ -z $CONSOLE_CHAR ]] && export CONSOLE_CHAR="UTF-8"
 
 # Load libraries
-source $SRC/lib/debootstrap.sh				# System specific install (old)
-source $SRC/lib/debootstrap-ng.sh 			# System specific install (extended)
+source $SRC/lib/debootstrap-ng.sh 			# System specific install
 source $SRC/lib/distributions.sh 			# System specific install
-source $SRC/lib/boards.sh 				# Board specific install
 source $SRC/lib/desktop.sh 				# Desktop specific install
 source $SRC/lib/common.sh 				# Functions
 source $SRC/lib/makeboarddeb.sh 			# Create board support package
 source $SRC/lib/general.sh				# General functions
+source $SRC/lib/chroot-buildpackages.sh			# Building packages in chroot
 
 # compress and remove old logs
 mkdir -p $DEST/debug
-(cd $DEST/debug && tar -czf logs-$(date +"%d_%m_%Y-%H_%M_%S").tgz *.log) > /dev/null 2>&1
+(cd $DEST/debug && tar -czf logs-$(<timestamp).tgz *.log) > /dev/null 2>&1
 rm -f $DEST/debug/*.log > /dev/null 2>&1
+date +"%d_%m_%Y-%H_%M_%S" > $DEST/debug/timestamp
+# delete compressed logs older than 7 days
+(cd $DEST/debug && find . -name '*.tgz' -atime +7 -delete) > /dev/null
 
 # compile.sh version checking
 ver1=$(awk -F"=" '/^# VERSION/ {print $2}' <"$SRC/compile.sh")
@@ -48,9 +50,6 @@ if [[ -z $ver1 || $ver1 -lt $ver2 ]]; then
 	echo -e "Press \e[0;33m<Ctrl-C>\x1B[0m to abort compilation, \e[0;33m<Enter>\x1B[0m to ignore and continue"
 	read
 fi
-
-# clean unfinished DEB packing
-rm -rf $DEST/debs/*/*/
 
 # Script parameters handling
 for i in "$@"; do
@@ -139,7 +138,9 @@ if [[ $KERNEL_ONLY != yes && -z $RELEASE ]]; then
 	RELEASE=$(dialog --stdout --title "Choose a release" --backtitle "$backtitle" --menu "Select one of supported releases" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
 	unset options
 	[[ -z $RELEASE ]] && exit_with_error "No release selected"
+fi
 
+if [[ $KERNEL_ONLY != yes && -z $BUILD_DESKTOP ]]; then
 	options=()
 	options+=("no" "Image with console interface")
 	options+=("yes" "Image with desktop environment")
@@ -153,7 +154,8 @@ source $SRC/lib/configuration.sh
 # The name of the job
 VERSION="Armbian $REVISION ${BOARD^} $DISTRIBUTION $RELEASE $BRANCH"
 
-echo `date +"%d.%m.%Y %H:%M:%S"` $VERSION >> $DEST/debug/install.log
+echo `date +"%d.%m.%Y %H:%M:%S"` $VERSION >> $DEST/debug/output.log
+(cd $SRC/lib; echo "Build script version: $(git rev-parse @)") >> $DEST/debug/output.log
 
 display_alert "Starting Armbian build script" "@host" "info"
 
@@ -171,21 +173,21 @@ if [[ $SYNC_CLOCK != no ]]; then
 fi
 start=`date +%s`
 
-# fetch_from_github [repository, sub directory]
+# fetch_from_repo <url> <dir> <ref> <subdir_flag>
 
 [[ $CLEAN_LEVEL == *sources* ]] && cleaning "sources"
 
-display_alert "source downloading" "@host" "info"
-fetch_from_github "$BOOTLOADER" "$BOOTSOURCE" "$BOOTBRANCH" "yes"
-BOOTSOURCEDIR=$BOOTSOURCE/$GITHUBSUBDIR
-fetch_from_github "$LINUXKERNEL" "$LINUXSOURCE" "$KERNELBRANCH" "yes"
-LINUXSOURCEDIR=$LINUXSOURCE/$GITHUBSUBDIR
+display_alert "Downloading sources" "" "info"
+fetch_from_repo "$BOOTSOURCE" "$BOOTDIR" "$BOOTBRANCH" "yes"
+BOOTSOURCEDIR=$BOOTDIR/${BOOTBRANCH##*:}
+fetch_from_repo "$KERNELSOURCE" "$KERNELDIR" "$KERNELBRANCH" "yes"
+LINUXSOURCEDIR=$KERNELDIR/${KERNELBRANCH##*:}
 
-if [[ -n $MISC1 ]]; then fetch_from_github "$MISC1" "$MISC1_DIR"; fi
 if [[ -n $MISC5 ]]; then fetch_from_github "$MISC5" "$MISC5_DIR"; fi
+if [[ -n $MISC6 ]]; then fetch_from_github "$MISC6" "$MISC6_DIR"; fi
 
 # compile sunxi tools
-if [[ $LINUXFAMILY == sun*i ]]; then 
+if [[ $LINUXFAMILY == sun*i ]]; then
 	compile_sunxi_tools
 	[[ $BRANCH != default && $LINUXFAMILY != sun8i ]] && LINUXFAMILY="sunxi"
 fi
@@ -206,13 +208,12 @@ done
 if [[ ! -f $DEST/debs/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb ]]; then
 	# if requires specific toolchain, check if default is suitable
 	if [[ -n $UBOOT_NEEDS_GCC ]] && ! check_toolchain "UBOOT" "$UBOOT_NEEDS_GCC" ; then
-		# try to find suitable in $SRC/toolchains
+		# try to find suitable in $SRC/toolchains, exit if not found
 		find_toolchain "UBOOT" "$UBOOT_NEEDS_GCC" "UBOOT_TOOLCHAIN"
-		[[ -z $UBOOT_TOOLCHAIN ]] && exit_with_error "Could not find required u-boot toolchain" "$UBOOT_NEEDS_GCC"
 	fi
 	cd $SOURCES/$BOOTSOURCEDIR
 	grab_version "$SOURCES/$BOOTSOURCEDIR" "UBOOT_VER"
-	advanced_patch "u-boot" "$BOOTSOURCE-$BRANCH" "$BOARD" "$BOOTSOURCE-$BRANCH $UBOOT_VER"
+	[[ $FORCE_CHECKOUT == yes ]] && advanced_patch "u-boot" "$BOOTDIR-$BRANCH" "$BOARD" "$BOOTDIR-$BRANCH $UBOOT_VER"
 	compile_uboot
 fi
 
@@ -220,59 +221,34 @@ fi
 if [[ ! -f $DEST/debs/${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb ]]; then
 	# if requires specific toolchain, check if default is suitable
 	if [[ -n $KERNEL_NEEDS_GCC ]] && ! check_toolchain "$KERNEL" "$KERNEL_NEEDS_GCC" ; then
-		# try to find suitable in $SRC/toolchains
+		# try to find suitable in $SRC/toolchains, exit if not found
 		find_toolchain "KERNEL" "$KERNEL_NEEDS_GCC" "KERNEL_TOOLCHAIN"
-		[[ -z $KERNEL_TOOLCHAIN ]] && exit_with_error "Could not find required kernel toolchain" "$KERNEL_NEEDS_GCC"
 	fi
 	cd $SOURCES/$LINUXSOURCEDIR
 
 	# this is a patch that Ubuntu Trusty compiler works
 	if [[ $(patch --dry-run -t -p1 < $SRC/lib/patch/kernel/compiler.patch | grep Reversed) != "" ]]; then
-		patch --batch --silent -t -p1 < $SRC/lib/patch/kernel/compiler.patch > /dev/null 2>&1
+		display_alert "Patching kernel for compiler support"
+		[[ $FORCE_CHECKOUT == yes ]] && patch --batch --silent -t -p1 < $SRC/lib/patch/kernel/compiler.patch >> $DEST/debug/output.log 2>&1
 	fi
 
 	grab_version "$SOURCES/$LINUXSOURCEDIR" "KERNEL_VER"
-	advanced_patch "kernel" "$LINUXFAMILY-$BRANCH" "$BOARD" "$LINUXFAMILY-$BRANCH $KERNEL_VER"
+	[[ $FORCE_CHECKOUT == yes ]] && advanced_patch "kernel" "$LINUXFAMILY-$BRANCH" "$BOARD" "$LINUXFAMILY-$BRANCH $KERNEL_VER"
 	compile_kernel
 fi
 
 [[ -n $RELEASE ]] && create_board_package
 
+# chroot-buildpackages
+[[ $EXTERNAL_NEW == yes ]] && chroot_build_packages
+
 if [[ $KERNEL_ONLY != yes ]]; then
-	if [[ $EXTENDED_DEBOOTSTRAP != no ]]; then
-		debootstrap_ng
-	else
-	
-		# create or use prepared root file-system
-		custom_debootstrap
-
-		# add kernel to the image
-		install_kernel
-
-		# install board specific applications
-		install_distribution_specific
-		install_board_specific
-
-		# install desktop
-		if [[ $BUILD_DESKTOP == yes ]]; then
-			install_desktop
-		fi
-
-		# install external applications
-		[[ $EXTERNAL == yes ]] && install_external_applications
-
-		# closing image
-		closing_image
-	fi
-
+	debootstrap_ng
 else
 	display_alert "Kernel building done" "@host" "info"
 	display_alert "Target directory" "$DEST/debs/" "info"
 	display_alert "File name" "${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb" "info"
 fi
-
-# workaround for bug introduced with desktop build -- please remove when fixed
-chmod 777 /tmp
 
 end=`date +%s`
 runtime=$(((end-start)/60))

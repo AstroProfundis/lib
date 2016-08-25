@@ -13,12 +13,15 @@
 # cleaning
 # exit_with_error
 # get_package_list_hash
+# create_sources_list
 # fetch_from_github
+# fetch_from_repo
 # display_alert
 # grab_version
 # fingerprint_image
 # addtorepo
 # prepare_host
+# download_toolchain
 
 # cleaning <target>
 #
@@ -32,38 +35,41 @@
 cleaning()
 {
 	case $1 in
-		"make")	# clean u-boot and kernel sources
-		[ -d "$SOURCES/$BOOTSOURCEDIR" ] && display_alert "Cleaning" "$SOURCES/$BOOTSOURCEDIR" "info" && cd $SOURCES/$BOOTSOURCEDIR && make -s ARCH=$ARCHITECTURE CROSS_COMPILE=$UBOOT_COMPILER clean >/dev/null
-		[ -d "$SOURCES/$LINUXSOURCEDIR" ] && display_alert "Cleaning" "$SOURCES/$LINUXSOURCEDIR" "info" && cd $SOURCES/$LINUXSOURCEDIR && make -s ARCH=$ARCHITECTURE CROSS_COMPILE=$KERNEL_COMPILER clean >/dev/null
+		make)	# clean u-boot and kernel sources
+		[[ -d $SOURCES/$BOOTSOURCEDIR ]] && display_alert "Cleaning" "$BOOTSOURCEDIR" "info" && cd $SOURCES/$BOOTSOURCEDIR && eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} 'make clean CROSS_COMPILE="$CCACHE $UBOOT_COMPILER" >/dev/null 2>/dev/null'
+		[[ -d $SOURCES/$LINUXSOURCEDIR ]] && display_alert "Cleaning" "$LINUXSOURCEDIR" "info" && cd $SOURCES/$LINUXSOURCEDIR && eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} 'make clean CROSS_COMPILE="$CCACHE $UBOOT_COMPILER" >/dev/null 2>/dev/null'
 		;;
 
-		"debs") # delete output/debs for current branch and family
-		if [ -d "$DEST/debs" ]; then
-			display_alert "Cleaning $DEST/debs for" "$BOARD $BRANCH" "info"
+		debs) # delete output/debs for current branch and family
+		if [[ -d $DEST/debs ]]; then
+			display_alert "Cleaning output/debs for" "$BOARD $BRANCH" "info"
 			# easier than dealing with variable expansion and escaping dashes in file names
 			find $DEST/debs -name '*.deb' | grep -E "${CHOSEN_KERNEL/image/.*}|$CHOSEN_UBOOT" | xargs rm -f
-			[[ -n $RELEASE ]] && rm -f $DEST/debs/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH}.deb
+			[[ -n $RELEASE ]] && rm -f $DEST/debs/$RELEASE/${CHOSEN_ROOTFS}_*_${ARCH}.deb
 		fi
 		;;
 
-		"alldebs") # delete output/debs
-		[ -d "$DEST/debs" ] && display_alert "Cleaning" "$DEST/debs" "info" && rm -rf $DEST/debs/*
+		extras) # delete output/debs/extra/$RELEASE for all architectures
+		if [[ -n $RELEASE && -d $DEST/debs/extra/$RELEASE ]]; then
+			display_alert "Cleaning output/debs/extra for" "$RELEASE" "info"
+			rm -rf $DEST/debs/extra/$RELEASE
+		fi
 		;;
 
-		"cache") # delete output/cache
-		[ -d "$CACHEDIR" ] && display_alert "Cleaning" "$CACHEDIR" "info" && find $CACHEDIR/ -type f -delete
+		alldebs) # delete output/debs
+		[[ -d $DEST/debs ]] && display_alert "Cleaning" "output/debs" "info" && rm -rf $DEST/debs/*
 		;;
 
-		"images") # delete output/images
-		[ -d "$DEST/images" ] && display_alert "Cleaning" "$DEST/images" "info" && rm -rf $DEST/images/*
+		cache) # delete output/cache
+		[[ -d $CACHEDIR ]] && display_alert "Cleaning" "output/cache" "info" && find $CACHEDIR/ -type f -delete
 		;;
 
-		"sources") # delete output/sources
-		[ -d "$SOURCES" ] && display_alert "Cleaning" "$SOURCES" "info" && rm -rf $SOURCES/*
+		images) # delete output/images
+		[[ -d $DEST/images ]] && display_alert "Cleaning" "output/images" "info" && rm -rf $DEST/images/*
 		;;
 
-		*) # unknown
-		display_alert "Cleaning: unrecognized option" "$1" "wrn"
+		sources) # delete output/sources and output/buildpkg
+		[[ -d $SOURCES ]] && display_alert "Cleaning" "sources" "info" && rm -rf $SOURCES/* $DEST/buildpkg/*
 		;;
 	esac
 }
@@ -85,6 +91,7 @@ exit_with_error()
 	display_alert "ERROR in function $_function" "$_file:$_line" "err"
 	display_alert "$_description" "$_highlight" "err"
 	display_alert "Process terminated" "" "info"
+	# TODO: execute run_after_build here?
 	exit -1
 }
 
@@ -98,6 +105,48 @@ get_package_list_hash()
 	echo $(printf '%s\n' $PACKAGE_LIST | sort -u | md5sum | cut -d' ' -f 1)
 }
 
+# create_sources_list <release>
+#
+# <release>: wheezy|jessie|trusty|xenial
+#
+create_sources_list()
+{
+	local release=$1
+	case $release in
+	wheezy|jessie)
+	cat <<-EOF
+	deb http://${DEBIAN_MIRROR} $release main contrib non-free
+	#deb-src http://${DEBIAN_MIRROR} $release main contrib non-free
+
+	deb http://${DEBIAN_MIRROR} ${release}-updates main contrib non-free
+	#deb-src http://${DEBIAN_MIRROR} ${release}-updates main contrib non-free
+
+	deb http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
+	#deb-src http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
+
+	deb http://security.debian.org/ ${release}/updates main contrib non-free
+	#deb-src http://security.debian.org/ ${release}/updates main contrib non-free
+	EOF
+	;;
+
+	trusty|xenial)
+	cat <<-EOF
+	deb http://${UBUNTU_MIRROR} $release main restricted universe multiverse
+	#deb-src http://${UBUNTU_MIRROR} $release main restricted universe multiverse
+
+	deb http://${UBUNTU_MIRROR} ${release}-security main restricted universe multiverse
+	#deb-src http://${UBUNTU_MIRROR} ${release}-security main restricted universe multiverse
+
+	deb http://${UBUNTU_MIRROR} ${release}-updates main restricted universe multiverse
+	#deb-src http://${UBUNTU_MIRROR} ${release}-updates main restricted universe multiverse
+
+	deb http://${UBUNTU_MIRROR} ${release}-backports main restricted universe multiverse
+	#deb-src http://${UBUNTU_MIRROR} ${release}-backports main restricted universe multiverse
+	EOF
+	;;
+	esac
+}
+
 # fetch_from_github <URL> <directory> <tag> <tagsintosubdir>
 #
 # parameters:
@@ -109,13 +158,48 @@ get_package_list_hash()
 
 fetch_from_github (){
 GITHUBSUBDIR=$3
+local githuburl=$1
 [[ -z "$3" ]] && GITHUBSUBDIR="branchless"
 [[ -z "$4" ]] && GITHUBSUBDIR="" # only kernel and u-boot have subdirs for tags
 if [ -d "$SOURCES/$2/$GITHUBSUBDIR" ]; then
 	cd $SOURCES/$2/$GITHUBSUBDIR
-	git checkout -q $FORCE $3
-	display_alert "... updating" "$2" "info"
-	PULL=$(git pull)
+	git checkout -q $FORCE $3 2> /dev/null	
+	local bar_1=$(git ls-remote $githuburl --tags $GITHUBSUBDIR* | sed -n '1p' | cut -f1 | cut -c1-7)
+	local bar_2=$(git ls-remote $githuburl --tags $GITHUBSUBDIR* | sed -n '2p' | cut -f1 | cut -c1-7)
+	local bar_3=$(git ls-remote $githuburl --tags HEAD * | sed -n '1p' | cut -f1 | cut -c1-7)
+	local localbar="$(git rev-parse HEAD | cut -c1-7)"
+	
+	# debug
+	# echo "git ls-remote $githuburl --tags $GITHUBSUBDIR* | sed -n '1p' | cut -f1"
+	# echo "git ls-remote $githuburl --tags $GITHUBSUBDIR* | sed -n '2p' | cut -f1"	
+	# echo "git ls-remote $githuburl --tags HEAD * | sed -n '1p' | cut -f1"		
+	# echo "$3 - $bar_1 || $bar_2 = $localbar"
+	# echo "$3 - $bar_3 = $localbar"
+	
+	# ===>> workaround >> [[ $bar_1 == "" && $bar_2 == "" ]]
+	
+	if [[ "$3" != "" ]] && [[ "$bar_1" == "$localbar" || "$bar_2" == "$localbar" ]] || [[ "$3" == "" && "$bar_3" == "$localbar" ]] || [[ $bar_1 == "" && $bar_2 == "" ]]; then
+		display_alert "... you have latest sources" "$2 $3" "info"
+	else		
+		if [ "$DEBUG_MODE" != yes ]; then
+			display_alert "... your sources are outdated - creating new shallow clone" "$2 $3" "info"
+			if [[ -z "$GITHUBSUBDIR" ]]; then 
+				rm -rf $SOURCES/$2".old"
+				mv $SOURCES/$2 $SOURCES/$2".old" 
+			else
+				rm -rf $SOURCES/$2/$GITHUBSUBDIR".old"
+				mv $SOURCES/$2/$GITHUBSUBDIR $SOURCES/$2/$GITHUBSUBDIR".old" 
+			fi
+			
+			if [[ -n $3 && -n "$(git ls-remote $1 | grep "$tag")" ]]; then
+				git clone -n $1 $SOURCES/$2/$GITHUBSUBDIR -b $3 --depth 1 || git clone -n $1 $SOURCES/$2/$GITHUBSUBDIR -b $3
+			else
+				git clone -n $1 $SOURCES/$2/$GITHUBSUBDIR --depth 1
+			fi
+		fi
+		cd $SOURCES/$2/$GITHUBSUBDIR
+		git checkout -q
+	fi
 else
 	if [[ -n $3 && -n "$(git ls-remote $1 | grep "$tag")" ]]; then
 		display_alert "... creating a shallow clone" "$2 $3" "info"
@@ -137,25 +221,150 @@ if [ $? -ne 0 ]; then
 fi
 }
 
+# fetch_rom_repo <url> <directory> <ref> <ref_subdir>
+# <url>: remote repository URL
+# <directory>: local directory; subdir for branch/tag will be created
+# <ref>:
+#	branch:name
+#	tag:name
+#	head(*)
+#	commit:hash@depth(**)
+#
+# *: Implies ref_subdir=no
+# **: Not implemented yet
+# <ref_subdir>: "yes" to create subdirectory for tag or branch name
+#
+fetch_from_repo()
+{
+	local url=$1
+	local dir=$2
+	local ref=$3
+	local ref_subdir=$4
+
+	[[ -z $ref || ( $ref != tag:* && $ref != branch:* && $ref != head ) ]] && exit_with_error "Error in configuration"
+	local ref_type=${ref%%:*}
+	if [[ $ref_type == head ]]; then
+		local ref_name=HEAD
+	else
+		local ref_name=${ref##*:}
+	fi
+
+	display_alert "Checking git sources" "$dir $ref_name" "info"
+
+	# get default remote branch name without cloning
+	# local ref_name=$(git ls-remote --symref $url HEAD | grep -o 'refs/heads/\S*' | sed 's%refs/heads/%%')
+	# for git:// protocol comparing hashes of "git ls-remote -h $url" and "git ls-remote --symref $url HEAD" is needed
+
+	if [[ $ref_subdir == yes ]]; then
+		local workdir=$dir/$ref_name
+	else
+		local workdir=$dir
+	fi
+	mkdir -p $SOURCES/$workdir
+	cd $SOURCES/$workdir
+
+	if [[ $(git rev-parse --is-inside-work-tree 2>/dev/null) != true || \
+				$(git rev-parse --show-toplevel) != $(pwd) ]]; then
+		display_alert "Creating local copy"
+		git init -q .
+		git remote add origin $url
+	fi
+
+	local changed=false
+
+	local local_hash=$(git rev-parse @ 2>/dev/null)
+	case $ref_type in
+		branch)
+		# TODO: grep refs/heads/$name
+		local remote_hash=$(git ls-remote -h $url "$ref_name" | head -1 | cut -f1)
+		[[ -z $local_hash || $local_hash != $remote_hash ]] && changed=true
+		;;
+
+		tag)
+		local remote_hash=$(git ls-remote -t $url "$ref_name" | cut -f1)
+		if [[ -z $local_hash || $local_hash != $remote_hash ]]; then
+			remote_hash=$(git ls-remote -t $url "$ref_name^{}" | cut -f1)
+			[[ -z $remote_hash || $local_hash != $remote_hash ]] && changed=true
+		fi
+		;;
+
+		head)
+		local remote_hash=$(git ls-remote $url HEAD | cut -f1)
+		[[ -z $local_hash || $local_hash != $remote_hash ]] && changed=true
+		;;
+	esac
+
+	if [[ $changed == true ]]; then
+		# remote was updated, fetch and check out updates
+		display_alert "Fetching updates"
+		case $ref_type in
+			branch) git fetch --depth 1 origin $ref_name ;;
+			tag) git fetch --depth 1 origin tags/$ref_name ;;
+			head) git fetch --depth 1 origin HEAD ;;
+		esac
+		display_alert "Checking out"
+		git checkout -f -q FETCH_HEAD
+	elif [[ -n $(git status -uno --porcelain --ignore-submodules=all) ]]; then
+		# working directory is not clean
+		if [[ $FORCE_CHECKOUT == yes ]]; then
+			display_alert "Checking out"
+			git checkout -f -q HEAD
+		else
+			display_alert "Skipping checkout"
+		fi
+	else
+		# working directory is clean, nothing to do
+		display_alert "Up to date"
+	fi
+	if [[ -f .gitmodules ]]; then
+		display_alert "Updating submodules" "" "ext"
+		# FML: http://stackoverflow.com/a/17692710
+		for i in $(git config -f .gitmodules --get-regexp path | awk '{ print $2 }'); do
+			cd $SOURCES/$workdir
+			local surl=$(git config -f .gitmodules --get "submodule.$i.url")
+			local sref=$(git config -f .gitmodules --get "submodule.$i.branch")
+			if [[ -n $sref ]]; then
+				sref="branch:$sref"
+			else
+				sref="head"
+			fi
+			fetch_from_repo "$surl" "$workdir/$i" "$sref"
+		done
+	fi
+} #############################################################################
 
 display_alert()
 #--------------------------------------------------------------------------------------------------------------------------------
 # Let's have unique way of displaying alerts
 #--------------------------------------------------------------------------------------------------------------------------------
 {
-# log function parameters to install.log
-echo "Displaying message: $@" >> $DEST/debug/install.log
+	# log function parameters to install.log
+	[[ -n $DEST ]] && echo "Displaying message: $@" >> $DEST/debug/output.log
 
-if [[ $2 != "" ]]; then TMPARA="[\e[0;33m $2 \x1B[0m]"; else unset TMPARA; fi
-if [ $3 == "err" ]; then
-	echo -e "[\e[0;31m error \x1B[0m] $1 $TMPARA"
-elif [ $3 == "wrn" ]; then
-	echo -e "[\e[0;35m warn \x1B[0m] $1 $TMPARA"
-elif [ $3 == "ext" ]; then
-	echo -e "[\e[0;32m o.k. \x1B[0m] \e[1;32m$1\x1B[0m $TMPARA"
-else
-	echo -e "[\e[0;32m o.k. \x1B[0m] $1 $TMPARA"
-fi
+	local tmp=""
+	[[ -n $2 ]] && tmp="[\e[0;33m $2 \x1B[0m]"
+
+	case $3 in
+		err)
+		echo -e "[\e[0;31m error \x1B[0m] $1 $tmp"
+		;;
+
+		wrn)
+		echo -e "[\e[0;35m warn \x1B[0m] $1 $tmp"
+		;;
+
+		ext)
+		echo -e "[\e[0;32m o.k. \x1B[0m] \e[1;32m$1\x1B[0m $tmp"
+		;;
+
+		info)
+		echo -e "[\e[0;32m o.k. \x1B[0m] $1 $tmp"
+		;;
+
+		*)
+		echo -e "[\e[0;32m .... \x1B[0m] $1 $tmp"
+		;;
+	esac
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------
@@ -176,79 +385,119 @@ grab_version ()
 	eval $"$2"="$ver"
 }
 
-fingerprint_image (){
+fingerprint_image()
+{
 #--------------------------------------------------------------------------------------------------------------------------------
 # Saving build summary to the image
 #--------------------------------------------------------------------------------------------------------------------------------
-display_alert "Fingerprinting" "$VERSION Linux" "info"
-
-echo "--------------------------------------------------------------------------------" > $1
-echo "" >> $1
-echo "" >> $1
-echo "" >> $1
-echo "Title:			$VERSION (unofficial)" >> $1
-echo "Kernel:			Linux $VER" >> $1
-now="$(date +'%d.%m.%Y')" >> $1
-printf "Build date:		%s\n" "$now" >> $1
-echo "Author:			Igor Pecovnik, www.igorpecovnik.com" >> $1
-echo "Sources: 		http://github.com/igorpecovnik" >> $1
-echo "" >> $1
-echo "Support: 		http://www.armbian.com" >> $1
-echo "" >> $1
-echo "" >> $1
-echo "--------------------------------------------------------------------------------" >> $1
-echo "" >> $1
-cat $SRC/lib/LICENSE >> $1
-echo "" >> $1
-echo "--------------------------------------------------------------------------------" >> $1
+	display_alert "Fingerprinting" "$VERSION" "info"
+	cat <<-EOF > $1
+	--------------------------------------------------------------------------------
+	Title:			$VERSION
+	Kernel:			Linux $VER
+	Build date:		$(date +'%d.%m.%Y')
+	Author:			Igor Pecovnik, www.igorpecovnik.com
+	Sources: 		http://github.com/igorpecovnik/lib
+	Support: 		http://www.armbian.com, http://forum.armbian.com/
+	Changelog: 		http://www.armbian.com/logbook/
+	Documantation:		http://docs.armbian.com/
+	--------------------------------------------------------------------------------
+	$(cat $SRC/lib/LICENSE)
+	--------------------------------------------------------------------------------
+	EOF
 }
 
-addtorepo ()
+addtorepo()
 {
 # add all deb files to repository
 # parameter "remove" dumps all and creates new
 # function: cycle trough distributions
-DISTROS=("wheezy" "jessie" "trusty")
-IFS=" "
-j=0
-while [[ $j -lt ${#DISTROS[@]} ]]
-        do
-        # add each packet to distribution
-		DIS=${DISTROS[$j]}
-
+	local distributions=("wheezy" "jessie" "trusty" "xenial")
+	
+	# workaround since we dont't build utils for those
+	mkdir -p ../output/debs/extra/wheezy/
+	mkdir -p ../output/debs/extra/trusty/	
+	ln -sf ../jessie/utils ../output/debs/extra/wheezy/utils
+	ln -sf ../jessie/utils ../output/debs/extra/trusty/utils
+	
+	for release in "${distributions[@]}"; do
+	
 		# let's drop from publish if exits
-		if [ "$(aptly publish list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep $DIS)" != "" ]; then
-		aptly publish drop -config=config/aptly.conf $DIS > /dev/null 2>&1
+		if [[ -n $(aptly publish list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep $release) ]]; then
+			aptly publish drop -config=config/aptly.conf $release > /dev/null 2>&1
 		fi
 		#aptly db cleanup -config=config/aptly.conf
 
-		if [ "$1" == "remove" ]; then
+		if [[ $1 == remove ]]; then
 		# remove repository
-			aptly repo drop -config=config/aptly.conf $DIS > /dev/null 2>&1
+			aptly repo drop -config=config/aptly.conf $release > /dev/null 2>&1
 			aptly db cleanup -config=config/aptly.conf > /dev/null 2>&1
 		fi
 
-		# create repository if not exist
-		OUT=$(aptly repo list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep $DIS)
-		if [[ "$OUT" != "$DIS" ]]; then
-			display_alert "Creating section" "$DIS" "info"
-			aptly repo create -config=config/aptly.conf -distribution=$DIS -component=main -comment="Armbian stable" $DIS > /dev/null 2>&1
+		if [[ $1 == replace ]]; then
+			local replace=true
+		else
+			local replace=false
 		fi
 
-		# add all packages
-		aptly repo add -force-replace=true -config=config/aptly.conf $DIS $POT/*.deb
+		# create local repository if not exist
+		if [[ -z $(aptly repo list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep $release) ]]; then
+			display_alert "Creating section" "$release" "info"
+			aptly repo create -config=config/aptly.conf -distribution=$release -component=main -comment="Armbian main repository" $release
+		fi
+		if [[ -z $(aptly repo list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep "^utils") ]]; then
+			aptly repo create -config=config/aptly.conf -distribution=$release -component="utils" -comment="Armbian utilities" utils
+		fi
+		if [[ -z $(aptly repo list -config=config/aptly.conf -raw | awk '{print $(NF)}' | grep "${release}-desktop") ]]; then
+			aptly repo create -config=config/aptly.conf -distribution=$release -component="${release}-desktop" -comment="Armbian desktop" ${release}-desktop
+		fi
+		# create local repository if not exist
 
-		# add all distribution packages
-		if [ -d "$POT/$DIS" ]; then
-			aptly repo add -force-replace=true -config=config/aptly.conf $DIS $POT/$DIS/*.deb
+		# adding main
+		if find $POT -maxdepth 1 -type f -name "*.deb" 2>/dev/null | grep -q .; then
+			display_alert "Adding to repository $release" "main" "ext"
+			aptly repo add -force-replace=$replace -config=config/aptly.conf $release $POT/*.deb
+		else
+			display_alert "Not adding $release" "main" "wrn"
+		fi
+		
+		# adding main distribution packages
+		if find ${POT}${release} -maxdepth 1 -type f -name "*.deb" 2>/dev/null | grep -q .; then
+			display_alert "Adding to repository $release" "main" "ext"
+			aptly repo add -force-replace=$replace -config=config/aptly.conf $release ${POT}${release}/*.deb
+		else
+			display_alert "Not adding $release" "main" "wrn"
+		fi		
+		
+		# adding utils
+		if find ${POT}extra/$release/utils -maxdepth 1 -type f -name "*.deb" 2>/dev/null | grep -q .; then
+			display_alert "Adding to repository $release" "utils" "ext"
+			aptly repo add -config=config/aptly.conf "utils" ${POT}extra/$release/utils/*.deb
+		else
+			display_alert "Not adding $release" "utils" "wrn"
 		fi
 
-		aptly publish -passphrase=$GPG_PASS -force-overwrite=true -config=config/aptly.conf -component="main" --distribution=$DIS repo $DIS > /dev/null 2>&1
+		# adding desktop
+		if find ${POT}extra/$release/desktop -maxdepth 1 -type f -name "*.deb" 2>/dev/null | grep -q .; then
+			display_alert "Adding to repository $release" "desktop" "ext"
+			aptly repo add -force-replace=$replace -config=config/aptly.conf "${release}-desktop" ${POT}extra/$release/desktop/*.deb
+		else
+			display_alert "Not adding $release" "desktop" "wrn"
+		fi
 
-		#aptly repo show -config=config/aptly.conf $DIS
+		# publish
+		aptly publish -passphrase=$GPG_PASS -origin=Armbian -label=Armbian -config=config/aptly.conf -component=main,utils,${release}-desktop \
+			--distribution=$release repo $release utils ${release}-desktop 
 
-        j=$[$j+1]
-done
+		if [[ $? -ne 0 ]]; then
+			display_alert "Publishing failed" "$release" "err"
+			exit 0
+		fi
+	done
+	display_alert "List of local repos" "local" "info"
+	(aptly repo list -config=config/aptly.conf) | egrep packages
+	# serve
+	# aptly -config=config/aptly.conf -listen=":8189" serve
 }
 
 # prepare_host
@@ -261,64 +510,90 @@ prepare_host() {
 
 	display_alert "Preparing" "host" "info"
 
-	if [[ $(dpkg --print-architecture) == armhf ]]; then
-		display_alert "Please read documentation to set up proper compilation environment" "..." "info"
-		display_alert "http://www.armbian.com/using-armbian-tools/" "..." "info"
+	if [[ $(dpkg --print-architecture) == arm* ]]; then
+		display_alert "Please read documentation to set up proper compilation environment"
+		display_alert "http://www.armbian.com/using-armbian-tools/"
 		exit_with_error "Running this tool on board itself is not supported"
+	fi
+
+	if [[ $(dpkg --print-architecture) == i386 ]]; then
+		display_alert "Please read documentation to set up proper compilation environment"
+		display_alert "http://www.armbian.com/using-armbian-tools/"
+		display_alert "Running this tool on non-x64 build host in not supported officially" "" "wrn"
 	fi
 
 	# dialog may be used to display progress
 	if [[ $(dpkg-query -W -f='${db:Status-Abbrev}\n' dialog 2>/dev/null) != *ii* ]]; then
-		display_alert "Installing package" "dialog" "info"
+		display_alert "Installing package" "dialog"
 		apt-get install -qq -y --no-install-recommends dialog >/dev/null 2>&1
 	fi
 
 	# wget is needed
 	if [[ $(dpkg-query -W -f='${db:Status-Abbrev}\n' wget 2>/dev/null) != *ii* ]]; then
-		display_alert "Installing package" "wget" "info"
+		display_alert "Installing package" "wget"
 		apt-get install -qq -y --no-install-recommends wget >/dev/null 2>&1
 	fi
 
 	# need lsb_release to decide what to install
 	if [[ $(dpkg-query -W -f='${db:Status-Abbrev}\n' lsb-release 2>/dev/null) != *ii* ]]; then
-		display_alert "Installing package" "lsb-release" "info"
+		display_alert "Installing package" "lsb-release"
 		apt-get install -qq -y --no-install-recommends lsb-release >/dev/null 2>&1
 	fi
 
 	# packages list for host
-	PAK="ca-certificates device-tree-compiler pv bc lzop zip binfmt-support build-essential ccache debootstrap ntpdate pigz \
+	local hostdeps="ca-certificates device-tree-compiler pv bc lzop zip binfmt-support build-essential ccache debootstrap ntpdate pigz \
 	gawk gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi qemu-user-static u-boot-tools uuid-dev zlib1g-dev unzip libusb-1.0-0-dev ntpdate \
 	parted pkg-config libncurses5-dev whiptail debian-keyring debian-archive-keyring f2fs-tools libfile-fcntllock-perl rsync libssl-dev \
-	nfs-kernel-server btrfs-tools gcc-aarch64-linux-gnu ncurses-term p7zip-full dos2unix"
-
-	# warning: apt-cacher-ng will fail if installed and used both on host and in container/chroot environment with shared network
-	# set NO_APT_CACHER=yes to prevent installation errors in such case
-	if [[ $NO_APT_CACHER != yes ]]; then PAK="$PAK apt-cacher-ng"; fi
+	nfs-kernel-server btrfs-tools gcc-aarch64-linux-gnu ncurses-term p7zip-full dos2unix dosfstools libc6-dev-armhf-cross libc6-dev-armel-cross\
+	libc6-dev-arm64-cross curl pdftk gcc-arm-none-eabi"
 
 	local codename=$(lsb_release -sc)
-	if [[ $codename == "" || "trusty wily xenial" != *"$codename"* ]]; then
+	display_alert "Build host OS release" "${codename:-(unknown)}" "info"
+	if [[ -z $codename || "trusty wily xenial" != *"$codename"* ]]; then
 		display_alert "Host system support was not tested" "${codename:-(unknown)}" "wrn"
 		echo -e "Press \e[0;33m<Ctrl-C>\x1B[0m to abort compilation, \e[0;33m<Enter>\x1B[0m to ignore and continue"
 		read
 	fi
 
-	if [[ $codename == trusty ]]; then
-		PAK="$PAK libc6-dev-armhf-cross libc6-dev-armel-cross";
-		if [[ ! -f /etc/apt/sources.list.d/aptly.list ]]; then
-			display_alert "Adding repository for trusty" "aptly" "info"
-			echo 'deb http://repo.aptly.info/ squeeze main' > /etc/apt/sources.list.d/aptly.list
-			apt-key adv --keyserver keys.gnupg.net --recv-keys 9E3E53F19C7DE460
+	if [[ $codename == trusty && ! -f /etc/apt/sources.list.d/aptly.list ]]; then
+		display_alert "Adding repository for trusty" "aptly" "info"
+		echo 'deb http://repo.aptly.info/ squeeze main' > /etc/apt/sources.list.d/aptly.list
+		apt-key adv --keyserver keys.gnupg.net --recv-keys 9E3E53F19C7DE460
+	fi
+
+	if [[ $codename == xenial ]]; then
+		hostdeps="$hostdeps systemd-container udev"
+		if systemd-detect-virt -q -c; then
+			display_alert "Running in container" "$(systemd-detect-virt)" "info"
+			# disable apt-cacher unless NO_APT_CACHER=no is not specified explicitly
+			if [[ $NO_APT_CACHER != no ]]; then
+				display_alert "apt-cacher is disabled, set NO_APT_CACHER=no to override" "" "wrn"
+				NO_APT_CACHER=yes
+			fi
+			# create device nodes for loop devices
+			for i in {0..6}; do
+				mknod -m0660 /dev/loop$i b 7 $i > /dev/null 2>&1
+			done
 		fi
 	fi
 
-	if [[ $codename == wily || $codename == xenial ]]; then
-		PAK="$PAK libc6-dev-armhf-cross libc6-dev-armel-cross"
+	# warning: apt-cacher-ng will fail if installed and used both on host and in container/chroot environment with shared network
+	# set NO_APT_CACHER=yes to prevent installation errors in such case
+	if [[ $NO_APT_CACHER != yes ]]; then hostdeps="$hostdeps apt-cacher-ng"; fi
+
+	# Deboostrap in trusty breaks due too old debootstrap. We are installing Xenial package
+	local debootstrap_version=$(dpkg-query -W -f='${Version}\n' debootstrap | cut -f1 -d'+')
+	local debootstrap_minimal="1.0.78"
+
+	if [[ "$debootstrap_version" < "$debootstrap_minimal" ]]; then 
+		display_alert "Upgrading" "debootstrap" "info"
+		dpkg -i $SRC/lib/bin/debootstrap_1.0.78+nmu1ubuntu1.1_all.deb
 	fi
 
 	local deps=()
 	local installed=$(dpkg-query -W -f '${db:Status-Abbrev}|${binary:Package}\n' '*' 2>/dev/null | grep '^ii' | awk -F '|' '{print $2}' | cut -d ':' -f 1)
 
-	for packet in $PAK; do
+	for packet in $hostdeps; do
 		if ! grep -q -x -e "$packet" <<< "$installed"; then deps+=("$packet"); fi
 	done
 
@@ -342,12 +617,68 @@ prepare_host() {
 	test -e /proc/sys/fs/binfmt_misc/qemu-aarch64 || update-binfmts --enable qemu-aarch64
 
 	# create directory structure
-	mkdir -p $SOURCES $DEST/debug $CACHEDIR/rootfs $SRC/userpatches/overlay $SRC/toolchains
+	mkdir -p $SOURCES $DEST/debs/extra $DEST/debug $CACHEDIR/rootfs $SRC/userpatches/overlay $SRC/toolchains $SRC/userpatches/patch
 	find $SRC/lib/patch -type d ! -name . | sed "s%lib/patch%userpatches%" | xargs mkdir -p
+
+	# download external Linaro compiler and missing special dependencies since they are needed for certain sources
+	if [[ $codename == xenial ]]; then
+		download_toolchain "https://releases.linaro.org/components/toolchain/binaries/4.9-2016.02/aarch64-linux-gnu/gcc-linaro-4.9-2016.02-x86_64_aarch64-linux-gnu.tar.xz"
+		download_toolchain "https://releases.linaro.org/components/toolchain/binaries/4.9-2016.02/arm-linux-gnueabi/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabi.tar.xz"
+		download_toolchain "https://releases.linaro.org/components/toolchain/binaries/4.9-2016.02/arm-linux-gnueabihf/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf.tar.xz"
+		#download_toolchain "https://releases.linaro.org/components/toolchain/binaries/5.3-2016.02/arm-linux-gnueabihf/gcc-linaro-5.3-2016.02-x86_64_arm-linux-gnueabihf.tar.xz"
+		download_toolchain "https://releases.linaro.org/components/toolchain/binaries/5.2-2015.11-2/arm-linux-gnueabihf/gcc-linaro-5.2-2015.11-2-x86_64_arm-linux-gnueabihf.tar.xz"
+		#download_toolchain "https://releases.linaro.org/components/toolchain/binaries/4.9-2016.02/arm-eabi/gcc-linaro-4.9-2016.02-x86_64_arm-eabi.tar.xz"
+		download_toolchain "https://releases.linaro.org/14.04/components/toolchain/binaries/gcc-linaro-arm-linux-gnueabihf-4.8-2014.04_linux.tar.xz"
+		dpkg --add-architecture i386
+		apt-get install -qq -y --no-install-recommends lib32stdc++6 libc6-i386 lib32ncurses5 lib32tinfo5 zlib1g:i386 >/dev/null 2>&1
+	fi
 
 	[[ ! -f $SRC/userpatches/customize-image.sh ]] && cp $SRC/lib/scripts/customize-image.sh.template $SRC/userpatches/customize-image.sh
 
-	# TODO: needs better documentation
-	echo 'Place your patches and kernel.config / u-boot.config / lib.config here.' > $SRC/userpatches/readme.txt
-	echo 'They will be automatically included if placed here!' >> $SRC/userpatches/readme.txt
+	if [[ ! -f $SRC/userpatches/README ]]; then
+		rm $SRC/userpatches/readme.txt
+		echo 'Please read documentation about customizing build configuration' > $SRC/userpatches/README
+		echo 'http://www.armbian.com/using-armbian-tools/' >> $SRC/userpatches/README
+	fi
+
+	# check free space (basic), doesn't work on Trusty
+	local freespace=$(findmnt --target $SRC -n -o AVAIL -b 2>/dev/null) # in bytes
+	[[ -n $freespace && $(( $freespace / 1073741824 )) -lt 10 ]] && display_alert "Low free space left" "$(( $freespace / 1073741824 )) GiB" "wrn"
+}
+
+# download_toolchain <url>
+#
+download_toolchain()
+{
+	local url=$1
+	local filename=${url##*/}
+	local dirname=${filename//.tar.xz}
+
+	if [[ -f $SRC/toolchains/$dirname/.download-complete ]]; then
+		return
+	fi
+
+	cd $SRC/toolchains/
+
+	display_alert "Downloading toolchain" "$dirname" "info"
+	curl -Lf --progress-bar $url -o $filename
+	curl -Lf --progress-bar ${url}.asc -o ${filename}.asc
+
+	local verified=false
+
+	display_alert "Verifying"
+	if grep -q 'BEGIN PGP SIGNATURE' ${filename}.asc; then
+		(gpg --list-keys 8F427EAF || gpg --keyserver keyserver.ubuntu.com --recv-keys 8F427EAF) 2>&1 | tee -a $DEST/debug/output.log
+		gpg --verify --trust-model always -q ${filename}.asc 2>&1 | tee -a $DEST/debug/output.log
+		[[ ${PIPESTATUS[0]} -eq 0 ]] && verified=true
+	else
+		md5sum -c --status ${filename}.asc && verified=true
+	fi
+	if [[ $verified == true ]]; then
+		display_alert "Extracting"
+		tar --overwrite -xf $filename && touch $SRC/toolchains/$dirname/.download-complete
+		display_alert "Download complete" "" "info"
+	else
+		display_alert "Verification failed" "" "wrn"
+	fi
 }

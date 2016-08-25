@@ -21,7 +21,8 @@
 # write_uboot
 # customize_image
 
-compile_uboot (){
+compile_uboot()
+{
 #---------------------------------------------------------------------------------------------------------------------------------
 # Compile uboot from sources
 #---------------------------------------------------------------------------------------------------------------------------------
@@ -29,17 +30,18 @@ compile_uboot (){
 		exit_with_error "Error building u-boot: source directory does not exist" "$BOOTSOURCEDIR"
 	fi
 
-	display_alert "Compiling uboot. Please wait." "$VER" "info"
-	eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} ${UBOOT_COMPILER}gcc --version | head -1 | tee -a $DEST/debug/install.log
-	echo
+	# read uboot version to variable $VER
+	grab_version "$SOURCES/$BOOTSOURCEDIR" "VER"
+
+	# create patch for manual source changes in debug mode
+	[[ $DEBUG_MODE == yes ]] && userpatch_create "u-boot"
+
+	display_alert "Compiling uboot" "$VER" "info"
+	display_alert "Compiler version" "${UBOOT_COMPILER}gcc $(eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} ${UBOOT_COMPILER}gcc -dumpversion)" "info"
 	cd $SOURCES/$BOOTSOURCEDIR
 
-	local cthreads=$CTHREADS
-	[[ $LINUXFAMILY == marvell ]] && local MAKEPARA="u-boot.mmc"
-	[[ $LINUXFAMILY == s500 ]] && local MAKEPARA="u-boot-dtb.img"
-	[[ $BOARD == odroidc2 ]] && local MAKEPARA="ARCH=arm" && local cthreads=""
-
-	eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} 'make $CTHREADS $BOOTCONFIG CROSS_COMPILE="$CCACHE $UBOOT_COMPILER"' 2>&1 \
+	eval CCACHE_BASEDIR="$(pwd)" ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} \
+		'make $CTHREADS $BOOTCONFIG CROSS_COMPILE="$CCACHE $UBOOT_COMPILER"' 2>&1 \
 		${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/compilation.log'} \
 		${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'}
 
@@ -55,7 +57,8 @@ compile_uboot (){
 		fi
 	fi
 
-	eval ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} 'make $MAKEPARA $cthreads CROSS_COMPILE="$CCACHE $UBOOT_COMPILER"' 2>&1 \
+	eval CCACHE_BASEDIR="$(pwd)" ${UBOOT_TOOLCHAIN:+env PATH=$UBOOT_TOOLCHAIN:$PATH} \
+		'make $UBOOT_TARGET $CTHREADS CROSS_COMPILE="$CCACHE $UBOOT_COMPILER"' 2>&1 \
 		${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/compilation.log'} \
 		${OUTPUT_DIALOG:+' | dialog --backtitle "$backtitle" --progressbox "Compiling u-boot..." $TTY_Y $TTY_X'} \
 		${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'}
@@ -65,11 +68,15 @@ compile_uboot (){
 	mkdir -p $DEST/debs/$uboot_name/usr/lib/$uboot_name $DEST/debs/$uboot_name/DEBIAN
 
 	# set up postinstall script
-	printf '#!/bin/bash\nset -e\n[[ $DEVICE == /dev/null ]] && exit 0\n[[ -z $DEVICE ]] && DEVICE="/dev/mmcblk0"\n' > $DEST/debs/$uboot_name/DEBIAN/postinst
-	printf "DIR=/usr/lib/$uboot_name\n" >> $DEST/debs/$uboot_name/DEBIAN/postinst
-	declare -f write_uboot_platform >> $DEST/debs/$uboot_name/DEBIAN/postinst
-	printf 'write_uboot_platform $DIR $DEVICE\n' >> $DEST/debs/$uboot_name/DEBIAN/postinst
-	printf 'exit 0\n' >> $DEST/debs/$uboot_name/DEBIAN/postinst
+	cat <<-EOF > $DEST/debs/$uboot_name/DEBIAN/postinst
+	#!/bin/bash
+	[[ \$DEVICE == /dev/null ]] && exit 0
+	[[ -z \$DEVICE ]] && DEVICE="/dev/mmcblk0"
+	DIR=/usr/lib/$uboot_name
+	$(declare -f write_uboot_platform)
+	write_uboot_platform \$DIR \$DEVICE
+	exit 0
+	EOF
 	chmod 755 $DEST/debs/$uboot_name/DEBIAN/postinst
 
 	# set up control file
@@ -91,9 +98,8 @@ compile_uboot (){
 	done
 
 	cd $DEST/debs
-	display_alert "Target directory" "$DEST/debs/" "info"
 	display_alert "Building deb" "$uboot_name.deb" "info"
-	dpkg -b $uboot_name > $DEST/debug/install.log 2>&1
+	dpkg -b $uboot_name >> $DEST/debug/compilation.log 2>&1
 	rm -rf $uboot_name
 
 	FILESIZE=$(wc -c $DEST/debs/$uboot_name.deb | cut -f 1 -d ' ')
@@ -104,28 +110,23 @@ compile_uboot (){
 	fi
 }
 
-compile_sunxi_tools (){
-#---------------------------------------------------------------------------------------------------------------------------------
-# https://github.com/linux-sunxi/sunxi-tools Tools to help hacking Allwinner devices
-#---------------------------------------------------------------------------------------------------------------------------------
-
-	display_alert "Compiling sunxi tools" "@host & target" "info"
-	cd $SOURCES/$MISC1_DIR
-	make -s clean >/dev/null 2>&1
-	rm -f sunxi-fexc sunxi-nand-part
-	make -s >/dev/null 2>&1
-	cp fex2bin bin2fex /usr/local/bin/
-	# make -s clean >/dev/null 2>&1
-	# rm -f sunxi-fexc sunxi-nand-part meminfo sunxi-fel sunxi-pio 2>/dev/null
-	# NOTE: Fix CC=$CROSS_COMPILE"gcc" before reenabling
-	# make $CTHREADS 'sunxi-nand-part' CC=$CROSS_COMPILE"gcc" >> $DEST/debug/install.log 2>&1
-	# make $CTHREADS 'sunxi-fexc' CC=$CROSS_COMPILE"gcc" >> $DEST/debug/install.log 2>&1
-	# make $CTHREADS 'meminfo' CC=$CROSS_COMPILE"gcc" >> $DEST/debug/install.log 2>&1
-
+compile_sunxi_tools()
+{
+	fetch_from_repo "https://github.com/linux-sunxi/sunxi-tools.git" "sunxi-tools" "branch:master"
+	# Compile and install only if git commit hash changed
+	cd $SOURCES/sunxi-tools
+	if [[ ! -f .commit_id || $(git rev-parse @ 2>/dev/null) != $(<.commit_id) ]]; then
+		display_alert "Compiling" "sunxi-tools" "info"
+		make -s clean >/dev/null
+		make -s tools >/dev/null
+		mkdir -p /usr/local/bin/
+		make install-tools >/dev/null 2>&1
+		git rev-parse @ 2>/dev/null > .commit_id
+	fi
 }
 
-
-compile_kernel (){
+compile_kernel()
+{
 #---------------------------------------------------------------------------------------------------------------------------------
 # Compile kernel
 #---------------------------------------------------------------------------------------------------------------------------------
@@ -137,13 +138,12 @@ compile_kernel (){
 	# read kernel version to variable $VER
 	grab_version "$SOURCES/$LINUXSOURCEDIR" "VER"
 
-	display_alert "Compiling $BRANCH kernel" "@host" "info"
-	eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} ${KERNEL_COMPILER}gcc --version | head -1 | tee -a $DEST/debug/install.log
-	echo
-	cd $SOURCES/$LINUXSOURCEDIR/
+	# create patch for manual source changes in debug mode
+	[[ $DEBUG_MODE == yes ]] && userpatch_create "kernel"
 
-	# adding custom firmware to kernel source
-	if [[ -n $FIRMWARE ]]; then unzip -o $SRC/lib/$FIRMWARE -d $SOURCES/$LINUXSOURCEDIR/firmware; fi
+	display_alert "Compiling $BRANCH kernel" "$VER" "info"
+	display_alert "Compiler version" "${KERNEL_COMPILER}gcc $(eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} ${KERNEL_COMPILER}gcc -dumpversion)" "info"
+	cd $SOURCES/$LINUXSOURCEDIR/
 
 	# use proven config
 	if [[ $KERNEL_KEEP_CONFIG != yes || ! -f $SOURCES/$LINUXSOURCEDIR/.config ]]; then
@@ -161,9 +161,8 @@ compile_kernel (){
 
 	export LOCALVERSION="-$LINUXFAMILY"
 
-	sed -i 's/EXTRAVERSION = .*/EXTRAVERSION = /' Makefile
+	sed -i 's/EXTRAVERSION = .*/EXTRAVERSION =/' Makefile
 
-	# We can use multi threading here but not later since it's not working. This way of compilation is much faster.
 	if [[ $KERNEL_CONFIGURE != yes ]]; then
 		if [[ $BRANCH == default ]]; then
 			eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} 'make $CTHREADS ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" silentoldconfig'
@@ -175,7 +174,8 @@ compile_kernel (){
 		eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} 'make $CTHREADS ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" menuconfig'
 	fi
 
-	eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} 'make $CTHREADS ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" $KERNEL_IMAGE_TYPE modules dtbs 2>&1' \
+	eval CCACHE_BASEDIR="$(pwd)" ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} \
+		'make $CTHREADS ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" $KERNEL_IMAGE_TYPE modules dtbs 2>&1' \
 		${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/compilation.log'} \
 		${OUTPUT_DIALOG:+' | dialog --backtitle "$backtitle" --progressbox "Compiling kernel..." $TTY_Y $TTY_X'} \
 		${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'}
@@ -184,7 +184,7 @@ compile_kernel (){
 		exit_with_error "Kernel was not built" "@host"
 	fi
 
-	# different packaging for 4.3+ // probably temporaly soution
+	# different packaging for 4.3+
 	KERNEL_PACKING="deb-pkg"
 	IFS='.' read -a array <<< "$VER"
 	if (( "${array[0]}" == "4" )) && (( "${array[1]}" >= "3" )); then
@@ -192,8 +192,9 @@ compile_kernel (){
 	fi
 
 	# produce deb packages: image, headers, firmware, dtb
-	eval ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} 'make -j1 $KERNEL_PACKING KDEB_PKGVERSION=$REVISION LOCALVERSION="-"$LINUXFAMILY \
-		KBUILD_DEBARCH=$ARCH ARCH=$ARCHITECTURE DEBFULLNAME="$MAINTAINER" DEBEMAIL="$MAINTAINERMAIL" CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" 2>&1 ' \
+	eval CCACHE_BASEDIR="$(pwd)" ${KERNEL_TOOLCHAIN:+env PATH=$KERNEL_TOOLCHAIN:$PATH} \
+		'make -j1 $KERNEL_PACKING KDEB_PKGVERSION=$REVISION LOCALVERSION="-"$LINUXFAMILY \
+		KBUILD_DEBARCH=$ARCH ARCH=$ARCHITECTURE DEBFULLNAME="$MAINTAINER" DEBEMAIL="$MAINTAINERMAIL" CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" 2>&1' \
 		${PROGRESS_LOG_TO_FILE:+' | tee -a $DEST/debug/compilation.log'} \
 		${OUTPUT_DIALOG:+' | dialog --backtitle "$backtitle" --progressbox "Creating kernel packages..." $TTY_Y $TTY_X'} \
 		${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'}
@@ -245,6 +246,7 @@ find_toolchain()
 			toolchain=${dir}bin
 		fi
 	done
+	[[ -z $toolchain ]] && exit_with_error "Could not find required toolchain" "${compiler}gcc $expression"
 	eval $"$var_name"="$toolchain"
 }
 
@@ -316,26 +318,24 @@ process_patch_file() {
 		| awk '{print $NF}' | sed -n 's/,//p' | xargs -I % sh -c 'rm %'
 
 	# main patch command
-	echo "$patch $description" >> $DEST/debug/install.log
-	patch --batch --silent -p1 -N < $patch >> $DEST/debug/install.log 2>&1
+	echo "Processing file $(basename $patch)" >> $DEST/debug/patching.log
+	patch --batch --silent -p1 -N < $patch >> $DEST/debug/patching.log 2>&1
 
 	if [[ $? -ne 0 ]]; then
 		display_alert "... $(basename $patch)" "failed" "wrn";
-		if [[ $EXIT_PATCHING_ERROR == yes ]]; then exit_with_error "Aborting due to" "EXIT_PATCHING_ERROR"; fi
+		[[ $EXIT_PATCHING_ERROR == yes ]] && exit_with_error "Aborting due to" "EXIT_PATCHING_ERROR"
 	else
 		display_alert "... $(basename $patch)" "succeeded" "info"
 	fi
+	echo >> $DEST/debug/patching.log
 }
 
-install_external_applications ()
+install_external_applications()
 {
 #--------------------------------------------------------------------------------------------------------------------------------
 # Install external applications example
 #--------------------------------------------------------------------------------------------------------------------------------
 display_alert "Installing extra applications and drivers" "" "info"
-
-# cleanup for install_kernel and install_board_specific
-umount $CACHEDIR/sdcard/tmp >/dev/null 2>&1
 
 for plugin in $SRC/lib/extras/*.sh; do
 	source $plugin
@@ -359,11 +359,10 @@ if [[ -n $MISC5_DIR && $BRANCH != next && $LINUXSOURCEDIR == *sun8i* ]]; then
 	install -m 755 a10disp "$CACHEDIR/sdcard/usr/local/bin"
 fi
 
-# h3disp/sun8i-corekeeper.sh for sun8i/3.4.x
+# h3disp for sun8i/3.4.x
 if [[ $LINUXFAMILY == sun8i && $BRANCH == default ]]; then
 	install -m 755 "$SRC/lib/scripts/h3disp" "$CACHEDIR/sdcard/usr/local/bin"
-	install -m 755 "$SRC/lib/scripts/sun8i-corekeeper.sh" "$CACHEDIR/sdcard/usr/local/bin"
-	sed -i 's|^exit\ 0$|/usr/local/bin/sun8i-corekeeper.sh \&\n\n&|' "$CACHEDIR/sdcard/etc/rc.local"
+	install -m 755 "$SRC/lib/scripts/h3consumption" "$CACHEDIR/sdcard/usr/local/bin"
 fi
 }
 
@@ -376,20 +375,58 @@ write_uboot()
 {
 	local loop=$1
 	display_alert "Writing bootloader" "$loop" "info"
-	dpkg -x ${DEST}/debs/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb /tmp/
-	write_uboot_platform "/tmp/usr/lib/${CHOSEN_UBOOT}_${REVISION}_${ARCH}" "$loop"
+	mkdir -p /tmp/u-boot/
+	dpkg -x ${DEST}/debs/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb /tmp/u-boot/
+	write_uboot_platform "/tmp/u-boot/usr/lib/${CHOSEN_UBOOT}_${REVISION}_${ARCH}" "$loop"
 	[[ $? -ne 0 ]] && exit_with_error "U-boot failed to install" "@host"
-	rm -r /tmp/usr
+	rm -r /tmp/u-boot/
 	sync
 }
 
 customize_image()
 {
+	# for users that need to prepare files at host
+	[[ -f $SRC/userpatches/customize-image-host.sh ]] && source $SRC/userpatches/customize-image-host.sh
 	cp $SRC/userpatches/customize-image.sh $CACHEDIR/sdcard/tmp/customize-image.sh
 	chmod +x $CACHEDIR/sdcard/tmp/customize-image.sh
 	mkdir -p $CACHEDIR/sdcard/tmp/overlay
-	mount --bind $SRC/userpatches/overlay $CACHEDIR/sdcard/tmp/overlay
+	if [[ $(lsb_release -sc) == xenial ]]; then
+		# util-linux >= 2.27 required
+		mount -o bind,ro $SRC/userpatches/overlay $CACHEDIR/sdcard/tmp/overlay
+	else
+		mount -o bind $SRC/userpatches/overlay $CACHEDIR/sdcard/tmp/overlay
+	fi
 	display_alert "Calling image customization script" "customize-image.sh" "info"
 	chroot $CACHEDIR/sdcard /bin/bash -c "/tmp/customize-image.sh $RELEASE $FAMILY $BOARD $BUILD_DESKTOP"
 	umount $CACHEDIR/sdcard/tmp/overlay
+	mountpoint -q $CACHEDIR/sdcard/tmp/overlay || rm -r $CACHEDIR/sdcard/tmp/overlay
+}
+
+userpatch_create()
+{
+	# create commit to start from clean source
+	git add .
+	git -c user.name='Armbian User' -c user.email='user@example.org' commit -q -m "Cleaning working copy"
+
+	local patch="$SRC/userpatches/patch/$1-$LINUXFAMILY-$BRANCH.patch"
+
+	# apply previous user debug mode created patches
+	[[ -f "$patch" && $1 == "u-boot" ]] && display_alert "Applying existing u-boot patch" "$patch" "wrn" && patch --batch --silent -p1 -N < $patch
+	[[ -f "$patch" && $1 == "kernel" ]] && display_alert "Applying existing kernel patch" "$patch" "wrn" && patch --batch --silent -p1 -N < $patch
+
+	# prompt to alter source
+	display_alert "Make your changes in this directory:" "$(pwd)" "wrn"
+	display_alert "Press <Enter> after you are done" "waiting" "wrn"
+	read
+	tput cuu1
+	git add .
+	# create patch out of changes
+	if ! git diff-index --quiet --cached HEAD; then
+		git diff --staged > $patch
+		display_alert "You will find your patch here:" "$patch" "info"
+	else
+		display_alert "No changes found, skipping patch creation" "" "wrn"
+	fi
+	git reset --soft HEAD~
+	for i in {3..1..1};do echo -n "$i." && sleep 1; done
 }

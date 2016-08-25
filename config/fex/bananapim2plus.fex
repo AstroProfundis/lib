@@ -76,7 +76,7 @@ used = 1
 start_type = 1
 irkey_used = 1
 pmukey_used = 1
-pmukey_num = 30
+pmukey_num = 3
 led_power = 0
 led_state = 0
 
@@ -99,7 +99,7 @@ gpio1	=  port:PA15<1><default><default><1>
 [recovery_para]
 used =	1
 mode =	2
-recovery_key = port:PL03<0><default><default><default>
+recovery_key = port:PL01<0><default><default><default>
 
 
 ;---------------------------------------------------------------------------------------------------------
@@ -180,7 +180,7 @@ pll_de           = 864
 ; dram_tpr7[9:0] to set ddr3 or ddr3l clk.
 ;*****************************************************************************
 [dram_para]
-dram_clk        = 672
+dram_clk        = 624
 dram_type       = 3
 dram_zq         = 0x3b3bfb
 dram_odt_en     = 0x1
@@ -234,7 +234,7 @@ dram_selfresh_en    = 1
 dram_freq           = 36
 wakeup_src0         =
 wakeup_src_wl       = port:PG10<4><default><default><0>
-;wakeup_src_bt       = port:PL03<6><default><default><0>
+wakeup_src_bt       = port:PL03<6><default><default><0>
 
 ;----------------------------------------------------------------------------------
 ;i2c configuration
@@ -332,7 +332,7 @@ manual_cs     = 0
 ;----------------------------------------------------------------------------------
 [gpio_para]
 gpio_used       = 1
-gpio_num        = 30
+gpio_num        = 27
 gpio_pin_1      = port:PA12<1><default><default><0>
 gpio_pin_2      = port:PA11<1><default><default><0>
 gpio_pin_3      = port:PA06<1><default><default><0>
@@ -361,12 +361,6 @@ gpio_pin_24     = port:PL04<1><default><default><0>
 gpio_pin_25     = port:PA16<1><default><default><0>
 gpio_pin_26     = port:PA21<1><default><default><0>
 gpio_pin_27     = port:PA20<1><default><default><0>
-;gpio_pin_29     = port:PL10<1><default><default><1>
-gpio_pin_28     = port:PL03<0><default><default><1>
-
-;[led_assign]
-;normal_led      = "gpio_pin_29"
-;standby_led     = "gpio_pin_10"
 
 [leds_para]
 leds_used = 1
@@ -387,15 +381,15 @@ red_led_active_low = 0
 
 [ths_para]
 ths_used = 1
-ths_trip1_count = 6
-ths_trip1_0 = 60
-ths_trip1_1 = 75
-ths_trip1_2 = 85
-ths_trip1_3 = 90
-ths_trip1_4 = 95
-ths_trip1_5 = 100
-ths_trip1_6 = 0
-ths_trip1_7 = 0
+ths_trip1_count = 8
+ths_trip1_0 = 65
+ths_trip1_1 = 70
+ths_trip1_2 = 75
+ths_trip1_3 = 80
+ths_trip1_4 = 85
+ths_trip1_5 = 90
+ths_trip1_6 = 95
+ths_trip1_7 = 105
 ths_trip1_0_min = 0
 ths_trip1_0_max = 1
 ths_trip1_1_min = 1
@@ -405,11 +399,13 @@ ths_trip1_2_max = 3
 ths_trip1_3_min = 3
 ths_trip1_3_max = 4
 ths_trip1_4_min = 4
-ths_trip1_4_max = 5
-ths_trip1_5_min = 5
-ths_trip1_5_max = 5
-ths_trip1_6_min = 0
-ths_trip1_6_max = 0
+ths_trip1_4_max = 6
+ths_trip1_5_min = 6
+ths_trip1_5_max = 8
+ths_trip1_6_min = 8
+ths_trip1_6_max = 10
+ths_trip1_7_min = 0
+ths_trip1_7_max = 0
 ths_trip2_count = 1
 ths_trip2_0 = 105
 
@@ -418,13 +414,18 @@ ths_trip2_0 = 105
 ;----------------------------------------------------------------------------------
 
 [cooler_table]
-cooler_count = 6
+cooler_count = 11
 cooler0 = "1200000 4 4294967295 0"
-cooler1 = "912000 4 4294967295 0"
-cooler2 = "720000 4 4294967295 0"
-cooler3 = "648000 4 4294967295 0"
-cooler4 = "480000 2 4294967295 0"
-cooler5 = "240000 1 4294967295 0"
+cooler1 = "1008000 4 4294967295 0"
+cooler2 = "816000 4 4294967295 0"
+cooler3 = "720000 4 4294967295 0"
+cooler4 = "648000 4 4294967295 0"
+cooler5 = "480000 4 4294967295 0"
+cooler6 = "312000 4 4294967295 0"
+cooler7 = "240000 4 4294967295 0"
+cooler8 = "240000 3 4294967295 0"
+cooler9 = "240000 2 4294967295 0"
+cooler10 = "240000 1 4294967295 0"
 
 [nand0_para]
 nand_support_2ch    = 0
@@ -515,7 +516,7 @@ hdmi_power             = "vcc-hdmi-18"
 ;hdmi_cts_compatibility = 1
 
 [tv_para]
-tv_used				= 1
+tv_used				= 0
 tv_dac_used			= 1
 tv_dac_src0			= 0
 
@@ -1045,7 +1046,7 @@ adcdrc_used       	= 0
 dacdrc_used       	= 0
 adchpf_used       	= 0
 dachpf_used       	= 0
-audio_pa_ctrl          	= port:PA16<1><default><default><0>
+audio_pa_ctrl          	= port:PL01<1><default><default><0>
 
 [spdif0]
 spdif_used          = 0
@@ -1280,7 +1281,6 @@ key3_vol				  =	666
 key4_vol				  =	857
 key5_vol				  = 2000
 
-
 ;----------------------------------------------------------------------------------
 ;display seven segment para
 ;----------------------------------------------------------------------------------
@@ -1289,7 +1289,6 @@ d7s_used				= 0
 din_gpio				= port:PD00<1><default><default><1>
 clk_gpio				= port:PD01<1><default><default><1>
 stb_gpio				= port:PD02<1><default><default><1>
-
 
 ;----------------------------------------------------------------------------------
 ;mali parameters
@@ -1300,10 +1299,12 @@ mali_clkdiv = 1
 mali_extreme_freq = 600
 mali_extreme_vol = 1400
 
-
 ;----------------------------------------------------------------------------------
 ;1wire parameters (default - PA20)
 ;----------------------------------------------------------------------------------
 [w1_para]
 w1_used = 1
 gpio = 20
+
+[corekeeper]
+corekeeper_enabled = 1

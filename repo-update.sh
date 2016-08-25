@@ -16,13 +16,12 @@
 # We are using this only for kernel, firmware, root changes, headers
 
 
-# add password for your gpgp key
-GPG_PASS=""
+[[ -f "../userpatches/lib.config" ]] && source "../userpatches/lib.config"
 
 POT="../output/debs/"
 
 # load functions
-source general.sh			
+source general.sh
 
 # run repository update
 addtorepo

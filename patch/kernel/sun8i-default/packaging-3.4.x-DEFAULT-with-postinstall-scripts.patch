@@ -177,7 +177,7 @@ index ed7ccdc..bf30624 100644
  for script in postinst postrm preinst prerm ; do
  	mkdir -p "$tmpdir$debhookdir/$script.d"
  	cat <<EOF > "$tmpdir/DEBIAN/$script"
-@@ -149,12 +208,66 @@ set -e
+@@ -149,12 +208,62 @@ set -e
  # Pass maintainer script parameters to hook scripts
  export DEB_MAINT_PARAMS="\$*"
  
@@ -207,10 +207,6 @@ index ed7ccdc..bf30624 100644
 +else
 +ln -sf $(basename $installed_image_path) /boot/zImage > /dev/null 2>&1 || mv /$installed_image_path /boot/zImage
 +fi
-+if [ -f "/boot/initrd.img-$version" ]; then 
-+mkimage -A $UTS_MACHINE -O linux -T ramdisk -C gzip -n uInitrd -d /boot/initrd.img-$version /boot/uInitrd > /dev/null 2>&1
-+rm /boot/initrd.img-$version
-+fi
 +rm -f /boot/.next
 +exit 0
 +EOT
@@ -222,14 +218,14 @@ index ed7ccdc..bf30624 100644
 +cat >> $tmpdir/DEBIAN/preinst <<EOT 
 +# exit if we are running chroot
 +if [ "\$(stat -c %d:%i /)" != "\$(stat -c %d:%i /proc/1/root/.)" ]; then exit 0; fi
-+rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage /boot/initrd*
++rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage
 +
 +check_and_unmount (){
 +boot_device=\$(mountpoint -d /boot)
 +
 +for file in /dev/* ; do
 +	CURRENT_DEVICE=\$(printf "%d:%d" \$(stat --printf="0x%t 0x%T" \$file))
-+	if [ \$CURRENT_DEVICE = \$boot_device ]; then
++	if [[ "\$CURRENT_DEVICE" = "\$boot_device" ]]; then
 +		boot_partition=\$file
 +		break;
 +	fi
@@ -254,7 +250,7 @@ index ed7ccdc..bf30624 100644
 -(cd $srctree; find arch/$SRCARCH/include include scripts -type f >> "$objtree/debian/hdrsrcfiles")
 -(cd $objtree; find .config Module.symvers include scripts -type f >> "$objtree/debian/hdrobjfiles")
 +# Build kernel header package
-+(cd $srctree; find . -name Makefile\* -o -name Kconfig\* -o -name \*.pl) > "$objtree/debian/hdrsrcfiles"
++(cd $srctree; find . -name Makefile\* -o -name Kconfig\* -o -name \*.kconfig -o -name \*.pl) > "$objtree/debian/hdrsrcfiles"
 +(cd $srctree; find arch/$SRCARCH/include include scripts -type f) >> "$objtree/debian/hdrsrcfiles"
 +(cd $srctree; find arch/$SRCARCH -name module.lds -o -name Kbuild.platforms -o -name Platform) >> "$objtree/debian/hdrsrcfiles"
 +(cd $srctree; find $(find arch/$SRCARCH -name include -o -name scripts -type d) -type f) >> "$objtree/debian/hdrsrcfiles"

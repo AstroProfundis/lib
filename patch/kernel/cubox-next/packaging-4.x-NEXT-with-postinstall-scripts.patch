@@ -93,7 +93,7 @@ index 6c3b038..cc9b3c0 100755
  export INITRD=$want_initrd
  
  test -d $debhookdir/$script.d && run-parts --arg="$version" --arg="/$installed_image_path" $debhookdir/$script.d
-@@ -218,6 +251,59 @@ EOF
+@@ -218,6 +251,55 @@ EOF
  	chmod 755 "$tmpdir/DEBIAN/$script"
  done
  
@@ -113,10 +113,6 @@ index 6c3b038..cc9b3c0 100755
 +else
 +ln -sf $(basename $installed_image_path) /boot/zImage > /dev/null 2>&1 || mv /$installed_image_path /boot/zImage
 +fi
-+if [ -f "/boot/initrd.img-$version" ]; then 
-+mkimage -A $UTS_MACHINE -O linux -T ramdisk -C gzip -a 0 -e 0 -n uInitrd -d /boot/initrd.img-$version /boot/uInitrd > /dev/null 2>&1
-+rm /boot/initrd.img-$version
-+fi
 +touch /boot/.next
 +exit 0
 +EOT
@@ -134,7 +130,7 @@ index 6c3b038..cc9b3c0 100755
 +
 +for file in /dev/* ; do
 +	CURRENT_DEVICE=\$(printf "%d:%d" \$(stat --printf="0x%t 0x%T" \$file))
-+	if [ \$CURRENT_DEVICE = \$boot_device ]; then
++	if [[ "\$CURRENT_DEVICE" = "\$boot_device" ]]; then
 +		boot_partition=\$file
 +		break;
 +	fi
@@ -143,7 +139,7 @@ index 6c3b038..cc9b3c0 100755
 +bootfstype=\$(blkid -s TYPE -o value \$boot_partition)
 +if [ "\$bootfstype" = "vfat" ]; then 
 +umount /boot; 
-+rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage /boot/*nitrd*
++rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage
 +fi
 +}
 +mountpoint -q /boot && check_and_unmount

@@ -193,7 +193,7 @@ index 3001ec5..dc76d3c
  for script in postinst postrm preinst prerm ; do
  	mkdir -p "$tmpdir$debhookdir/$script.d"
  	cat <<EOF > "$tmpdir/DEBIAN/$script"
-@@ -147,14 +223,65 @@ for script in postinst postrm preinst prerm ; do
+@@ -147,14 +223,61 @@ for script in postinst postrm preinst prerm ; do
  set -e
  
  # Pass maintainer script parameters to hook scripts
@@ -220,10 +220,6 @@ index 3001ec5..dc76d3c
 +cat >> $tmpdir/DEBIAN/postinst <<EOT 
 +ln -sf $(basename $kernel_tmp_version) /boot/zImage > /dev/null 2>&1 || mv /$kernel_tmp_version /boot/zImage
 +
-+if [ -f "/boot/initrd.img-$version" ]; then 
-+mkimage -A $UTS_MACHINE -O linux -T ramdisk -C gzip -a 0 -e 0 -n uInitrd -d /boot/initrd.img-$version /boot/uInitrd > /dev/null 2>&1
-+rm /boot/initrd.img-$version
-+fi
 +
 +exit 0
 +EOT
@@ -241,7 +237,7 @@ index 3001ec5..dc76d3c
 +
 +for file in /dev/* ; do
 +	CURRENT_DEVICE=\$(printf "%d:%d" \$(stat --printf="0x%t 0x%T" \$file))
-+	if [ \$CURRENT_DEVICE = \$boot_device ]; then
++	if [[ "\$CURRENT_DEVICE" = "\$boot_device" ]]; then
 +		boot_partition=\$file
 +		break;
 +	fi
@@ -249,7 +245,7 @@ index 3001ec5..dc76d3c
 +
 +bootfstype=\$(blkid -s TYPE -o value \$boot_partition)
 +if [ "\$bootfstype" = "vfat" ]; then 
-+rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage /boot/*nitrd*
++rm -f /boot/System.map* /boot/config* /boot/vmlinuz* /boot/zImage /boot/uImage
 +fi
 +}
 +mountpoint -q /boot && check_and_unmount
