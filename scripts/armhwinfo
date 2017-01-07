@@ -118,7 +118,7 @@ prepare_board() {
 			echo 2 >/proc/irq/$(awk -F":" "/${USB1}/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
 			echo 4 >/proc/irq/$(awk -F":" "/${USB2}/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
 			case ${BOARD_NAME} in
-				"Orange Pi+"|"Orange Pi+ 2"|"Orange Pi+ 2E"|"Banana Pi M2+")
+				"Orange Pi+"|"Orange Pi+ 2"|"Orange Pi+ 2E"|"Banana Pi M2+"|"NanoPi M1 Plus")
 					# Send GBit Ethernet IRQs to cpu3
 					echo 8 >/proc/irq/$(awk -F":" "/${GbE}/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
 					;;
@@ -126,11 +126,15 @@ prepare_board() {
 					# Send 3rd USB port's IRQs to cpu3
 					echo 8 >/proc/irq/$(awk -F":" "/${USB3}/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
 					;;
-				"Orange Pi Lite")
-					# Send WiFi IRQs to cpu3
-					echo 8 >/proc/irq/$(awk -F":" "/${WiFi}/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
+				"Orange Pi Lite"|"NanoPi Air"|"Lime A33")
+					# Send SDIO/mmc IRQs to cpu3
+					for i in $(awk -F':' '/sunxi-mmc/{print $1}' /proc/interrupts); do
+						echo 8 >/proc/irq/$i/smp_affinity
+					done
 					;;
 				"Beelink X2")
+					# Wifi module reload workaround / fix
+					[[ -n $(lsmod | grep 8189es) ]] && rmmod 8189es && modprobe 8189es
 					# Send SDIO to cpu1, USB to cpu2, Ethernet to cpu3
 					for i in $(awk -F':' '/sunxi-mmc/{print $1}' /proc/interrupts); do
 						echo 2 >/proc/irq/$i/smp_affinity
@@ -146,15 +150,7 @@ prepare_board() {
 			# Send IRQs for the lower real USB port (usb2) to cpu2 and for the upper (OTG/usb1) to cpu1
 			echo 2 >/proc/irq/$(awk -F":" "/usb1/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
 			echo 4 >/proc/irq/$(awk -F":" "/usb2/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
-			# Send IRQs for GBit Ethernet on Pine64+ or SD card on Pine64 to cpu3
-			case $BOARD_NAME in
-				"Pine64+")
-					echo 8 >/proc/irq/$(awk -F":" "/1c30000.eth/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity
-					;;
-				*)
-					echo 8 >/proc/irq/$(awk -F":" "/sunxi-mmc/ {print \$1}" </proc/interrupts | sed 's/\ //g' | head -n1)/smp_affinity
-					;;
-			esac
+			echo 8 >/proc/irq/$(awk -F":" "/sunxi-mmc/ {print \$1}" </proc/interrupts | sed 's/\ //g' | head -n1)/smp_affinity
 			;;
 	esac
 } # prepare_board
@@ -173,7 +169,7 @@ log_hardware_info() {
 	echo -e "\n### dmesg:\n" >>${Log}
 	cat "${TMPFILE}" >>${Log}
 	echo -e "\n### lsusb:" >>${Log}
-	[ -f /boot/.verbose ] && USBVERBOSE="-v" || echo "" >>${Log}
+	[ -f /boot/.force-verbose ] && USBVERBOSE="-v" || echo "" >>${Log}
 	lsusb ${USBVERBOSE} 2>/dev/null >>${Log}
 	echo -e "\n### lscpu:\n" >>${Log}
 	lscpu >>${Log}
@@ -183,7 +179,9 @@ log_hardware_info() {
 	cat /proc/meminfo >>${Log} 
 	echo -e "\n### ifconfig:\n" >>${Log}
 	ifconfig >>${Log}
-	echo -e "### df:\n" >>${Log}
+	echo -e "### partitions:\n" >>${Log}
+	cat /proc/partitions >>${Log}
+	echo -e "\n### df:\n" >>${Log}
 	df -h >>${Log}
 	[[ -e /boot/script.bin ]] && echo -e "\n### /boot/script.bin --> $(readlink /boot/script.bin)" >>${Log}
 	get_flash_information >>${Log} &
@@ -259,8 +257,8 @@ case $1 in
 		log_hardware_info
 
 		# crash detection, enable verbose logging and disable it at clean shutdown
-		echo "$(date "+%s") $HARDWARE $ARCH $KERNELID $MACHINE $BOARD_NAME $VERSION" >/boot/.verbose
-		sync
+		[[ -f /boot/armbianEnv.txt ]] && sed -i "s/^verbosity=.*/verbosity=7/" /boot/armbianEnv.txt && sync &
+		touch /boot/.verbose
 		;;
 	query)
 		# armbianmonitor mode -- only interested in hardware info
@@ -269,25 +267,25 @@ case $1 in
 		export HARDWARE ARCH KERNELID MACHINE BOARD_NAME VERSION
 		;;
 	*stop*)
-		# remove /boot/.verbose only if /boot/.force-verbose doesn't exist.
-		# If our users demand verbose messages they get them
-		if [ -f /boot/.verbose -a ! -f /boot/.force-verbose ]; then
+		# set verbosity=1 only if set to 7 and /boot/.force-verbose doesn't exist.
+		if [ ! -f /boot/.force-verbose ]; then
+			[[ -f /boot/armbianEnv.txt ]] && sed -i "s/^verbosity=.*/verbosity=1/" /boot/armbianEnv.txt
 			rm /boot/.verbose
 		fi
 		case ${LINUXFAMILY} in
 			sun?i)
-			# redefine green led to blink until shutdown
-			(echo heartbeat >/sys/class/leds/*green*/trigger) 2>/dev/null 
+			# redefine green led to blink until shutdown, try to switch OTG port to host
+			(echo heartbeat >/sys/class/leds/*green*/trigger) 2>/dev/null
+			echo 0 > /sys/bus/platform/devices/sunxi_usb_udc/otg_role 2>/dev/null
 			;;
 		esac
-		# some kernel modules are known to crash the kernel on shutdown. One of the
-		# symptoms is that board/PMIC don't shut down correctly and still power some
-		# peripherals or onboard leds. If you experience such problems, check the 
-		# modules you loaded and try a forced rmmod prior to issueing a shutdown. In 
-		# case this helps the  line below is a good place to solve the problem from 
-		# now on (as an example unloading the mass storage gadget module causing this
-		# problem at least on sun7i):
-		#
-		# rmmod -f g_mass_storage
+		# some kernel modules are known to crash the kernel on shutdown (an example
+		# is the mass storage gadget module at least on sun7i). We try to unload as
+		# much modules as possible to minimize such situations:
+		/sbin/modprobe -r $(cut -f1 -d' ' </proc/modules)
+		# shutdown logging
+		echo -e "\n### shutdown:\n\n$(dmesg | tail -n 100)" >>/var/log/armhwinfo.log
+		sync
 		;;
 esac
+

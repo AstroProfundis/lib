@@ -42,9 +42,6 @@ fel_prepare_target()
 	echo > $FEL_ROOTFS/etc/fstab
 	echo "/dev/nfs / nfs defaults 0 0" >> $FEL_ROOTFS/etc/fstab
 	echo "tmpfs /tmp tmpfs defaults,nosuid 0 0" >> $FEL_ROOTFS/etc/fstab
-
-	# if for some reason uInitrd doesn't exist
-	[[ ! -f $FEL_ROOTFS/boot/uInitrd ]] && touch $FEL_ROOTFS/boot/uInitrd
 }
 
 fel_load()
@@ -61,11 +58,7 @@ fel_load()
 				local dtb_file=boot/script.bin
 			fi
 		else
-			if [[ -f $SOURCES/$BOOTSOURCEDIR/.config ]]; then
-				local dtb_file=boot/dtb/$(grep CONFIG_DEFAULT_DEVICE_TREE $SOURCES/$BOOTSOURCEDIR/.config | cut -d '"' -f2).dtb
-			else
-				local dtb_file=boot/dtb/$(grep CONFIG_DEFAULT_DEVICE_TREE $SOURCES/$BOOTSOURCEDIR/configs/$BOOTCONFIG | cut -d '"' -f2).dtb
-			fi
+			local dtb_file=boot/dtb/$(grep CONFIG_DEFAULT_DEVICE_TREE $FEL_ROOTFS/usr/lib/u-boot/$BOOTCONFIG | cut -d '"' -f2).dtb
 		fi
 	fi
 	[[ $(type -t fel_pre_load) == function ]] && fel_pre_load

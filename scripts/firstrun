@@ -7,8 +7,8 @@
 # Should-Start:      armhwinfo
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: PLEASE BE PATIENT AND DO NOT INTERRUPT THE FIRST REBOOT
-# Description:       Something needs to be done when  is
+# Short-Description: PLEASE DO NOT INTERRUPT THE FIRST BOOT
+# Description:       Something needs to be done when is
 #                    starting at first time.
 #                    regenerate ssh host key
 ### END INIT INFO
@@ -30,10 +30,14 @@ cat > /tmp/create_swap.sh <<EOT
 # 
 # create swap and adds it into fstab
 #
+# update console info
+setupcon --save
 # SSH Keys creation
 rm -f /etc/ssh/ssh_host*
+read entropy_before </proc/sys/kernel/random/entropy_avail
 dpkg-reconfigure openssh-server >/dev/null 2>&1
-echo -e "### [firstrun] Recreated SSH keys" >>${Log}
+read entropy_after </proc/sys/kernel/random/entropy_avail
+echo -e "### [firstrun] Recreated SSH keys (entropy: \${entropy_before} \${entropy_after})" >>${Log}
 MEMTOTAL=$(( $(awk -F" " '/^MemTotal/ {print $2}' </proc/meminfo) / 1024 ))
 FREESIZE=\$(df -hm / | awk '/\// {print \$(NF-2)}')
 SWAPFILE=/var/swap
@@ -44,7 +48,7 @@ chown root:root \$SWAPFILE
 chmod 0600 \$SWAPFILE
 mkswap \$SWAPFILE >/dev/null 2>&1
 swapon \$SWAPFILE >/dev/null 2>&1
-if ! grep -q swap /etc/fstab; then echo "\$SWAPFILE none swap sw 0 0" >> /etc/fstab; fi
+if ! grep -q swap /etc/fstab; then echo "\$SWAPFILE					none		swap	sw								0	0" >> /etc/fstab; fi
 if ! grep -q swap /etc/sysctl.conf; then echo "vm.swappiness=0" >> /etc/sysctl.conf; fi
 echo -e "\n### [firstrun] Created 128MB emergency swap as \$SWAPFILE" >>${Log}
 fi
@@ -63,7 +67,11 @@ if [[ "$(apt-cache policy ramlog | grep Installed)" != "" ]]; then
 	fi
 fi
 while [ -f /tmp/firstrun_running ]; do sleep 1; done
-if [ -f "/var/run/reboot" ]; then reboot; fi
+if [ -f "/var/run/reboot" ]; then
+	wall -n "Performing automatic reboot in 5 seconds"
+	sleep 5
+	reboot
+fi
 rm -f /tmp/create_swap.sh
 sync &
 EOT
@@ -73,6 +81,17 @@ collect_information() {
 	# get some info about the board
 	source /etc/armbian-release
 	DISTRIBUTION=$(lsb_release -cs)
+	
+	# enable BT on cubietruck
+	[[ "$BOARD" == "cubietruck" ]] && update-rc.d brcm40183-patch defaults
+
+	# enable BT on Banana M2+, NanoPi Air or NanoPi M1 Plus
+	[[ "$BOARD" == "bananapim2plus" || "$BOARD" == "nanopiair" || "$BOARD" == "nanopim1plus" ]] \
+		&& update-rc.d ap6212-bluetooth defaults
+	
+	# enable BT on Solidrun boards
+	[[ "$BOARD" == "Cubox i2eX/i4" ]] && update-rc.d brcm4330-patch defaults && /etc/init.d/brcm4330-patch start
+	
 	case ${DISTRIBUTION} in
 		wheezy)
 			root_device=$(mountpoint -d /)
@@ -95,30 +114,37 @@ collect_information() {
 } # collect_information
 
 adjust_sunxi_settings() {
-	# set some mac address for wifi	
-	[[ "$(lsmod | grep 8189fs)" != "" ]] && \
-		(MACADDR=$(printf '00:E0:4C:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]) ; \
-		echo "options 8189fs rtw_initmac=${MACADDR}" > /etc/modprobe.d/8189fs.conf ; \
-		echo -e "\n### [firstrun] Use MAC address ${MACADDR} for Wi-Fi from now" >>${Log})
-
 	# set some mac address for BT
-	[[ "$(lsmod | grep bcmdhd)" != "" ]] && \
+	[[ "$(lsmod | grep dhd)" != "" ]] && \
 		(MACADDR=$(printf '43:29:B1:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256]) ; \
-		sed -i "s/^MAC_ADDR=.*/MAC_ADDR=${MACADDR}/" /etc/default/brcm40183 \
+		sed -i "s/^MAC_ADDR=.*/MAC_ADDR=${MACADDR}/" /etc/default/brcm40183 ;\
+		sed -i "s/^MAC_ADDR=.*/MAC_ADDR=${MACADDR}/" /etc/default/ap6212 \
 		echo -e "\n### [firstrun] Use MAC address ${MACADDR} for Bluetooth from now" >>${Log})
 	
+	case ${BOARD_NAME} in
+		"NanoPi Air"|"Orange Pi Lite"|"NanoPi M1 Plus")
+			# change serial port for BT on NanoPi Air and NanoPi M1 Plus
+			sed -i "s/^PORT=.*/PORT=ttyS3/" /etc/default/ap6212
+			# relink /etc/network/interfaces on OPi Lite and NanoPi Air
+			cd /etc/network/ && ln -sf interfaces.network-manager interfaces
+			;;
+		"Orange Pi Zero")
+			# set OPi Zero WiFi address permanently based on a random address using Allwinner's MAC prefix
+			MACADDR=$(printf 'DC:44:6D:%02X:%02X:%02X\n' $[RANDOM%256] $[RANDOM%256] $[RANDOM%256])
+	                echo "options xradio_wlan macaddr=${MACADDR}" >/etc/modprobe.d/xradio_wlan.conf
+	                echo -e "\n### [firstrun] Use MAC address ${MACADDR} for Wi-Fi from now" >>${Log}
+			cd /etc/network/ && ln -sf interfaces.network-manager interfaces
+			(modprobe -r xradio_wlan && sleep 1 && modprobe xradio_wlan) &
+			;;
+	esac
+
 	# trigger red or blue LED as user feedback
 	echo heartbeat >/sys/class/leds/*red*/trigger 2>/dev/null || echo heartbeat >/sys/class/leds/*blue*/trigger 2>/dev/null	
-	[ -f /etc/wicd/wired-settings.conf ] && \
-		read HOSTNAME </etc/hostname
-		sed -i "s/^dhcphostname =.*/dhcphostname = ${HOSTNAME}/" /etc/wicd/wired-settings.conf && \
-		sed -i "s/wpa_driver =.*/wpa_driver = none/" /etc/wicd/manager-settings.conf \
-		echo -e "\n### [firstrun] Use ${HOSTNAME} for wicd settings" >>${Log}
 } # adjust_sunxi_settings
 
 do_expand_rootfs() {
-	# get device node for boot media
-	DEVICE="/dev/"$(lsblk -idn -o NAME | grep -w mmcblk0)
+	# get device node for boot media	
+	DEVICE=$(findmnt / | awk -F" " '/\/dev\// {print $2}' |  sed -e 's/p.*//')
 	if [ "${DEVICE}" = "/dev/" ]; then return ; fi
 	QUOTED_DEVICE=$(echo "${DEVICE}" | sed 's:/:\\\/:g')
 	
@@ -214,6 +240,9 @@ do_expand_rootfs() {
 	echo -e "\nNow executing resize2fs to enlarge ${root_partition} to the maximum:\n" >>${Log}
 	resize2fs $root_partition >>${Log} 2>&1 || true
 	
+	# force reboot if first run is issued on eMMC (bug on C2)
+	[[ $(find /sys -name oemid | grep emmc) ]] && s=1	
+	
 	# check whether reboot is necessary for resize2fs to take effect
 	FREESIZE=$(df -hm / | awk '/\// {print $(NF-2)}')
 	if [[ "$DISTRIBUTION" == "wheezy" || "$s" != "0" || "$FREESIZE" -lt "152" ]]; then
@@ -230,7 +259,153 @@ check_prerequisits() {
 	done
 } # check_prerequisits
 
+do_firstrun_automated_user_configuration()
+{
+	#-----------------------------------------------------------------------------
+	#Notes:
+	# - See /boot/armbian_first_run.txt for full list of available variables
+	# - Variable names here must here must match ones in config/armbian_first_run.txt
+
+	#-----------------------------------------------------------------------------
+	#Config FP
+	local fp_config='/boot/armbian_first_run.txt'
+
+	#-----------------------------------------------------------------------------
+	#Grab user requested settings
+	if [[ -f $fp_config ]]; then
+
+		# Convert line endings to Unix from Dos
+		sed -i $'s/\r$//' "$fp_config"
+
+		# check syntax
+		bash -n "$fp_config" || return
+
+		# Load vars directly from file
+		source "$fp_config"
+
+		#-----------------------------------------------------------------------------
+		# - Remove configuration file
+		if [[ $FR_general_delete_this_file_after_completion == 1 ]]; then
+			dd if=/dev/urandom of="$fp_config" bs=16K count=1
+			sync
+			rm "$fp_config"
+		fi
+
+		#-----------------------------------------------------------------------------
+		# Set Network
+		if [[ $FR_net_change_defaults == 1 ]]; then
+			# - Get 1st index of available wlan and eth adapters
+			local fp_ifconfig_tmp='/tmp/.ifconfig'
+			ifconfig -a > "$fp_ifconfig_tmp" #export to file, should be quicker in loop than calling ifconfig each time.
+
+			# find eth[0-9]
+			for ((i=0; i<=9; i++))
+			do
+				if (( $(cat "$fp_ifconfig_tmp" | grep -ci -m1 "eth$i") )); then
+					eth_index=$i
+					break
+				fi
+			done
+
+			# find wlan[0-9]
+			for ((i=0; i<=9; i++))
+			do
+				if (( $(cat "$fp_ifconfig_tmp" | grep -ci -m1 "wlan$i") )); then
+					wlan_index=$i
+					break
+				fi
+			done
+
+			rm "$fp_ifconfig_tmp"
+
+			# - Kill dhclient
+			killall -w dhclient
+
+			# - Drop Connections
+			ifdown eth$eth_index --force
+			ifdown wlan$wlan_index --force
+
+			# - Wifi enable
+			if [[ $FR_net_wifi_enabled == 1 ]]; then
+
+				#Enable Wlan, disable Eth
+				FR_net_ethernet_enabled=0
+				sed -i "/allow-hotplug wlan$wlan_index/c\allow-hotplug wlan$wlan_index" /etc/network/interfaces
+				sed -i "/allow-hotplug eth$eth_index/c\#allow-hotplug eth$eth_index" /etc/network/interfaces
+
+				#Set SSid (covers both WEP and WPA)
+				sed -i "/wireless-essid /c\   wireless-essid $FR_net_wifi_ssid" /etc/network/interfaces
+				sed -i "/wpa-ssid /c\   wpa-ssid $FR_net_wifi_ssid" /etc/network/interfaces
+
+				#Set Key (covers both WEP and WPA)
+				sed -i "/wireless-key /c\   wireless-key $FR_net_wifi_key" /etc/network/interfaces
+				sed -i "/wpa-psk /c\   wpa-psk $FR_net_wifi_key" /etc/network/interfaces
+
+				#Set wifi country code
+				iw reg set "$FR_net_wifi_countrycode"
+
+				#Disable powersaving for known chips that suffer from powersaving features causing connection dropouts.
+				#	This is espically true for the 8192cu and 8188eu.
+				#FOURDEE: This may be better located as default in ARMbian during build (eg: common), as currently, not active until after a reboot.
+				# - Realtek | all use the same option, so create array.
+				local realtek_array=(
+					"8192cu"
+					"8188eu"
+				)
+
+				for ((i=0; i<${#realtek_array[@]}; i++))
+				do
+					echo -e "options ${realtek_array[$i]} rtw_power_mgnt=0" > /etc/modprobe.d/realtek_"${realtek_array[$i]}".conf
+				done
+
+				unset realtek_array
+
+			# - Ethernet enable
+			elif [[ $FR_net_ethernet_enabled == 1 ]]; then
+
+				#Enable Eth, disable Wlan
+				FR_net_wifi_enabled=0
+				sed -i "/allow-hotplug eth$eth_index/c\allow-hotplug eth$eth_index" /etc/network/interfaces
+				#sed -i "/allow-hotplug wlan$wlan_index/c\#allow-hotplug wlan$wlan_index" /etc/network/interfaces
+
+			fi
+
+			# - Static IP enable
+			if [[ $FR_net_use_static == 1 ]]; then
+				if [[ $FR_net_wifi_enabled == 1 ]]; then
+					sed -i "/iface wlan$wlan_index inet/c\iface wlan$wlan_index inet static" /etc/network/interfaces
+				elif [[ $FR_net_ethernet_enabled == 1 ]]; then
+					sed -i "/iface eth$eth_index inet/c\iface eth$eth_index inet static" /etc/network/interfaces
+				fi
+
+				#This will change both eth and wlan entries, however, as only 1 adapater is enabled by this feature, should be fine.
+				sed -i "/^#address/c\address $FR_net_static_ip" /etc/network/interfaces
+				sed -i "/^#netmask/c\netmask $FR_net_static_mask" /etc/network/interfaces
+				sed -i "/^#gateway/c\gateway $FR_net_static_gateway" /etc/network/interfaces
+				sed -i "/^#dns-nameservers/c\dns-nameservers $FR_net_static_dns" /etc/network/interfaces
+			fi
+
+			# - Restart Networking
+			if [[ "$DISTRIBUTION" == "wheezy" || "$DISTRIBUTION" == "trusty" ]]; then
+				service networking restart
+			else
+				systemctl daemon-reload
+				systemctl restart networking
+			fi
+
+			# - Manually bring up adapters (just incase)
+			if [[ $FR_net_wifi_enabled == 1 ]]; then
+				ifup wlan$wlan_index
+			elif [[ $FR_net_ethernet_enabled == 1 ]]; then
+				ifup eth$eth_index
+			fi
+		fi
+	fi
+} #do_firstrun_automated_user_configuration
+
 main() {
+	touch /tmp/firstrun_running
+
 	check_prerequisits
 	collect_information
 
@@ -238,8 +413,15 @@ main() {
 		do_expand_rootfs
 	fi
 
-	touch /tmp/firstrun_running
+	do_firstrun_automated_user_configuration &
+
 	/tmp/create_swap.sh &
+
+	# old distros can't handle allow-hotplug
+	if [[ "$DISTRIBUTION" == "wheezy" || "$DISTRIBUTION" == "trusty" ]]; then
+		sed -i "s/allow-hotplug eth/auto eth/" /etc/network/interfaces
+		sed -i "s/allow-hotplug wlan/auto wlan/" /etc/network/interfaces
+	fi
 
 	# some hardware workarounds
 	case ${LINUXFAMILY} in

@@ -25,6 +25,7 @@ create_board_package()
 	# Replaces: base-files is needed to replace /etc/update-motd.d/ files on Xenial
 	# Replaces: unattended-upgrades may be needed to replace /etc/apt/apt.conf.d/50unattended-upgrades
 	# (distributions provide good defaults, so this is not needed currently)
+	# Depends: linux-base is needed for "linux-version" command in initrd cleanup script
 	cat <<-EOF > $destination/DEBIAN/control
 	Package: linux-${RELEASE}-root-${DEB_BRANCH}${BOARD}
 	Version: $REVISION
@@ -33,11 +34,11 @@ create_board_package()
 	Installed-Size: 1
 	Section: kernel
 	Priority: optional
-	Depends: bash, python3-apt
+	Depends: bash, linux-base
 	Provides: armbian-bsp
 	Conflicts: armbian-bsp
-	Replaces: base-files
-	Recommends: fake-hwclock, initramfs-tools
+	Replaces: base-files, mpv
+	Recommends: bsdutils, parted, python3-apt, util-linux, initramfs-tools, toilet, wireless-tools
 	Description: Armbian tweaks for $RELEASE on $BOARD ($BRANCH branch)
 	EOF
 
@@ -45,16 +46,29 @@ create_board_package()
 	cat <<-EOF > $destination/DEBIAN/preinst
 	#!/bin/sh
 	[ "\$1" = "upgrade" ] && touch /var/run/.reboot_required
-	[ -d "/boot/bin" ] && mv /boot/bin /boot/bin.old
+	[ -d "/boot/bin.old" ] && rm -rf /boot/bin.old
+	[ -d "/boot/bin" ] && mv -f /boot/bin /boot/bin.old
 	if [ -L "/etc/network/interfaces" ]; then
 		cp /etc/network/interfaces /etc/network/interfaces.tmp
 		rm /etc/network/interfaces
 		mv /etc/network/interfaces.tmp /etc/network/interfaces
 	fi
+	dpkg-divert --package linux-${RELEASE}-root-${DEB_BRANCH}${BOARD} --add --rename \
+		--divert /etc/mpv/mpv-dist.conf /etc/mpv/mpv.conf
 	exit 0
 	EOF
 
 	chmod 755 $destination/DEBIAN/preinst
+
+	# postrm script
+	cat <<-EOF > $destination/DEBIAN/postrm
+	#!/bin/sh
+	[ remove = "\$1" ] || [ abort-install = "\$1" ] && dpkg-divert --package linux-${RELEASE}-root-${DEB_BRANCH}${BOARD} --remove --rename \
+		--divert /etc/mpv/mpv-dist.conf /etc/mpv/mpv.conf
+	exit 0
+	EOF
+
+	chmod 755 $destination/DEBIAN/postrm
 
 	# set up post install script
 	cat <<-EOF > $destination/DEBIAN/postinst
@@ -62,13 +76,12 @@ create_board_package()
 	update-rc.d armhwinfo defaults >/dev/null 2>&1
 	update-rc.d -f motd remove >/dev/null 2>&1
 	[ ! -f "/etc/network/interfaces" ] && cp /etc/network/interfaces.default /etc/network/interfaces
-	[ -f "/root/.nand1-allwinner.tgz" ] && rm /root/.nand1-allwinner.tgz
-	[ -f "/root/nand-sata-install" ] && rm /root/nand-sata-install
+	rm -f /root/.nand1-allwinner.tgz /root/nand-sata-install
 	ln -sf /var/run/motd /etc/motd
 	[ -f "/etc/bash.bashrc.custom" ] && mv /etc/bash.bashrc.custom /etc/bash.bashrc.custom.old
-	[ -f "/etc/update-motd.d/00-header" ] && rm /etc/update-motd.d/00-header
-	[ -f "/etc/update-motd.d/10-help-text" ] && rm /etc/update-motd.d/10-help-text
+	rm -f /etc/update-motd.d/00-header /etc/update-motd.d/10-help-text
 	if [ -f "/boot/bin/$BOARD.bin" ] && [ ! -f "/boot/script.bin" ]; then ln -sf bin/$BOARD.bin /boot/script.bin >/dev/null 2>&1 || cp /boot/bin/$BOARD.bin /boot/script.bin; fi
+	rm -f /usr/local/bin/h3disp /usr/local/bin/h3consumption
 	exit 0
 	EOF
 
@@ -112,22 +125,26 @@ create_board_package()
 	LINUXFAMILY=$LINUXFAMILY
 	BRANCH=$BRANCH
 	ARCH=$ARCHITECTURE
+	IMAGE_TYPE=$IMAGE_TYPE
 	EOF
 
 	# temper binary for USB temp meter
-	mkdir -p $destination/usr/local/bin
+	mkdir -p $destination/usr/bin
 
 	# add USB OTG port mode switcher
-	install -m 755 $SRC/lib/scripts/sunxi-musb $destination/usr/local/bin
+	install -m 755 $SRC/lib/scripts/sunxi-musb $destination/usr/bin
 
 	# armbianmonitor (currently only to toggle boot verbosity and log upload)
-	install -m 755 $SRC/lib/scripts/armbianmonitor/armbianmonitor $destination/usr/local/bin
+	install -m 755 $SRC/lib/scripts/armbianmonitor/armbianmonitor $destination/usr/bin
 
 	# updating uInitrd image in update-initramfs trigger
 	mkdir -p $destination/etc/initramfs/post-update.d/
 	cat <<-EOF > $destination/etc/initramfs/post-update.d/99-uboot
 	#!/bin/sh
-	mkimage -A $INITRD_ARCH -O linux -T ramdisk -C gzip -n uInitrd -d \$2 /boot/uInitrd > /dev/null
+	echo "update-initramfs: Converting to u-boot format" >&2
+	tempname="/boot/uInitrd-\$1"
+	mkimage -A $INITRD_ARCH -O linux -T ramdisk -C gzip -n uInitrd -d \$2 \$tempname > /dev/null
+	ln -sf \$(basename \$tempname) /boot/uInitrd > /dev/null 2>&1 || mv \$tempname /boot/uInitrd
 	exit 0
 	EOF
 	chmod +x $destination/etc/initramfs/post-update.d/99-uboot
@@ -150,8 +167,18 @@ create_board_package()
 			exit 0
 		fi
 	fi
-	# delete old initrd images
-	find /boot -name "initrd.img*" ! -name "*\$version" -printf "Removing obsolete file %f\n" -delete
+	STATEDIR=/var/lib/initramfs-tools
+	version_list="\$(ls -1 "\${STATEDIR}" | linux-version sort --reverse)"
+	for v in \$version_list; do
+		if ! linux-version compare \$v eq \$version; then
+			# try to delete delete old initrd images via update-initramfs
+			INITRAMFS_TOOLS_KERNEL_HOOK=y update-initramfs -d -k \$v 2>/dev/null
+			# delete unused state files
+			find \$STATEDIR -type f ! -name "\$version" -printf "Removing obsolete file %f\n" -delete
+			# delete unused initrd images
+			find /boot -name "initrd.img*" -o -name "uInitrd-*" ! -name "*\$version" -printf "Removing obsolete file %f\n" -delete
+		fi
+	done
 	EOF
 	chmod +x $destination/etc/kernel/preinst.d/initramfs-cleanup
 
@@ -193,7 +220,7 @@ create_board_package()
 	cat <<-EOF > $destination/etc/apt/preferences.d/50-armbian.pref
 	Package: *
 	Pin: origin "apt.armbian.com"
-	Pin-Priority: 990
+	Pin-Priority: 500
 	EOF
 
 	# script to install to SATA
@@ -211,14 +238,28 @@ create_board_package()
 	# setting window title for remote sessions
 	install -m 755 $SRC/lib/scripts/ssh-title.sh $destination/etc/profile.d/ssh-title.sh
 
-	if [[ $LINUXCONFIG == *sun* ]]; then
-		if [[ $BRANCH != next ]]; then
+	# install copy of boot script & environment file
+	mkdir -p $destination/usr/share/armbian/
+	local bootscript_src=${BOOTSCRIPT%%:*}
+	local bootscript_dst=${BOOTSCRIPT##*:}
+	cp $SRC/lib/config/bootscripts/$bootscript_src $destination/usr/share/armbian/$bootscript_dst
+	[[ -n $BOOTENV_FILE && -f $SRC/lib/config/bootenv/$BOOTENV_FILE ]] && \
+		cp $SRC/lib/config/bootenv/$BOOTENV_FILE $destination/usr/share/armbian/armbianEnv.txt
+
+	# h3disp for sun8i/3.4.x
+	if [[ $LINUXFAMILY == sun8i && $BRANCH == default ]]; then
+		install -m 755 $SRC/lib/scripts/h3disp $destination/usr/bin
+		install -m 755 $SRC/lib/scripts/h3consumption $destination/usr/bin
+	fi
+
+	if [[ $LINUXFAMILY == sun*i ]]; then
+		if [[ $BRANCH == default ]]; then
 			# add soc temperature app
 			local codename=$(lsb_release -sc)
 			if [[ -z $codename || "sid" == *"$codename"* ]]; then
-				arm-linux-gnueabihf-gcc-5 $SRC/lib/scripts/sunxi-temp/sunxi_tp_temp.c -o $destination/usr/local/bin/sunxi_tp_temp
+				arm-linux-gnueabihf-gcc-5 $SRC/lib/scripts/sunxi-temp/sunxi_tp_temp.c -o $destination/usr/bin/sunxi_tp_temp
 			else
-				arm-linux-gnueabihf-gcc $SRC/lib/scripts/sunxi-temp/sunxi_tp_temp.c -o $destination/usr/local/bin/sunxi_tp_temp
+				arm-linux-gnueabihf-gcc $SRC/lib/scripts/sunxi-temp/sunxi_tp_temp.c -o $destination/usr/bin/sunxi_tp_temp
 			fi
 		fi
 
@@ -227,12 +268,14 @@ create_board_package()
 		for i in $(ls -w1 $SRC/lib/config/fex/*.fex | xargs -n1 basename); do
 			fex2bin $SRC/lib/config/fex/${i%*.fex}.fex $destination/boot/bin/${i%*.fex}.bin
 		done
+	fi
 
-		# bluetooth device enabler - for cubietruck
-		# TODO: move to tools or sunxi-common.inc
-		#install		$SRC/lib/scripts/brcm40183		$destination/etc/default
-		#install -m 755	$SRC/lib/scripts/brcm40183-patch	$destination/etc/init.d
-
+	if [[ ( $LINUXFAMILY == sun*i || $LINUXFAMILY == pine64 ) && $BRANCH == default ]]; then
+		# add mpv config for vdpau_sunxi
+		mkdir -p $destination/etc/mpv/
+		cp $SRC/lib/config/mpv_sunxi.conf $destination/etc/mpv/mpv.conf
+		echo "export VDPAU_OSD=1" > $destination/etc/profile.d/90-vdpau.sh
+		chmod 755 $destination/etc/profile.d/90-vdpau.sh
 	fi
 
 	# add some summary to the image

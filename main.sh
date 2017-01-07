@@ -11,7 +11,11 @@
 #
 # Main program
 #
-#
+
+# destination
+DEST=$SRC/output
+# sources for compilation
+SOURCES=$SRC/sources
 
 TTY_X=$(($(stty size | awk '{print $2}')-6)) # determine terminal width
 TTY_Y=$(($(stty size | awk '{print $1}')-6)) # determine terminal height
@@ -43,10 +47,10 @@ date +"%d_%m_%Y-%H_%M_%S" > $DEST/debug/timestamp
 (cd $DEST/debug && find . -name '*.tgz' -atime +7 -delete) > /dev/null
 
 # compile.sh version checking
-ver1=$(awk -F"=" '/^# VERSION/ {print $2}' <"$SRC/compile.sh")
-ver2=$(awk -F"=" '/^# VERSION/ {print $2}' <"$SRC/lib/compile.sh" 2>/dev/null) || ver2=0
+ver1=$(awk -F"=" '/^# VERSION/ {print $2}' <$SRC/compile.sh )
+ver2=$(awk -F"=" '/^# VERSION/ {print $2}' <$SRC/lib/compile.sh 2>/dev/null) || ver2=0
 if [[ -z $ver1 || $ver1 -lt $ver2 ]]; then
-	display_alert "File $0 is outdated. Please overwrite is with an updated version from" "$SRC/lib" "wrn"
+	display_alert "File $0 is outdated. Please overwrite it with an updated version from" "$SRC/lib" "wrn"
 	echo -e "Press \e[0;33m<Ctrl-C>\x1B[0m to abort compilation, \e[0;33m<Enter>\x1B[0m to ignore and continue"
 	read
 fi
@@ -61,6 +65,12 @@ for i in "$@"; do
 	fi
 done
 
+if [[ $BETA == yes ]]; then
+	IMAGE_TYPE=nightly
+else
+	IMAGE_TYPE=stable
+fi
+
 if [[ $PROGRESS_DISPLAY == none ]]; then
 	OUTPUT_VERYSILENT=yes
 elif [[ $PROGRESS_DISPLAY != plain ]]; then
@@ -71,11 +81,12 @@ if [[ $PROGRESS_LOG_TO_FILE != yes ]]; then unset PROGRESS_LOG_TO_FILE; fi
 if [[ $USE_CCACHE != no ]]; then
 	CCACHE=ccache
 	export PATH="/usr/lib/ccache:$PATH"
+	# private ccache directory to avoid permission issues when using build script with "sudo"
+	# see https://ccache.samba.org/manual.html#_sharing_a_cache for alternative solution
+	[[ $PRIVATE_CCACHE == yes ]] && export CCACHE_DIR=$DEST/ccache
 else
 	CCACHE=""
 fi
-
-if [[ $FORCE_CHECKOUT == yes ]]; then FORCE="-f"; else FORCE=""; fi
 
 # optimize build time with 100% CPU usage
 CPUS=$(grep -c 'processor' /proc/cpuinfo)
@@ -85,43 +96,73 @@ else
 	CTHREADS="-j1"
 fi
 
-# Check and fix dependencies, directory structure and settings
+# Check and install dependencies, directory structure and settings
 prepare_host
 
 # if KERNEL_ONLY, BOARD, BRANCH or RELEASE are not set, display selection menu
 
 if [[ -z $KERNEL_ONLY ]]; then
-	options+=("yes" "Kernel, u-boot and other packages")
-	options+=("no" "Full OS image for writing to SD card")
-	KERNEL_ONLY=$(dialog --stdout --title "Choose an option" --backtitle "$backtitle" --no-tags --menu "Select what to build" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
+	options+=("yes" "Kernel and u-boot packages")
+	options+=("no" "OS image for installation to SD card")
+	KERNEL_ONLY=$(dialog --stdout --title "Choose an option" --backtitle "$backtitle" --no-tags --menu "Select what to build" \
+		$TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
 	unset options
 	[[ -z $KERNEL_ONLY ]] && exit_with_error "No option selected"
 fi
 
+EXT='conf'
 if [[ -z $BOARD ]]; then
-	options=()
-	for board in $SRC/lib/config/boards/*.conf; do
-		options+=("$(basename $board | cut -d'.' -f1)" "$(head -1 $board | cut -d'#' -f2)")
+	WIP_STATE='supported'
+	WIP_BUTTON='WIP'
+	[[ -n $(find $SRC/lib/config/boards/ -name '*.wip' -print -quit) ]] && DIALOG_EXTRA="--extra-button"
+	while true; do
+		options=()
+		for board in $SRC/lib/config/boards/*.${EXT}; do
+			options+=("$(basename $board | cut -d'.' -f1)" "$(head -1 $board | cut -d'#' -f2)")
+		done
+		BOARD=$(dialog --stdout --title "Choose a board" --backtitle "$backtitle" --scrollbar --extra-label "Show $WIP_BUTTON" $DIALOG_EXTRA \
+			--menu "Select the target board\nDisplaying $WIP_STATE boards" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
+		STATUS=$?
+		if [[ $STATUS == 3 ]]; then
+			if [[ $WIP_STATE == supported ]]; then
+				WIP_STATE='work-in-progress'
+				EXT='wip'
+				WIP_BUTTON='supported'
+			else
+				WIP_STATE='supported'
+				EXT='conf'
+				WIP_BUTTON='WIP'
+			fi
+			continue
+		elif [[ $STATUS == 0 ]]; then
+			break
+		fi
+		unset options
+		[[ -z $BOARD ]] && exit_with_error "No board selected"
 	done
-	BOARD=$(dialog --stdout --title "Choose a board" --backtitle "$backtitle" --scrollbar --menu "Select one of supported boards" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
-	unset options
-	[[ -z $BOARD ]] && exit_with_error "No board selected"
 fi
 
-source $SRC/lib/config/boards/$BOARD.conf
+if [[ -f $SRC/lib/config/boards/${BOARD}.${EXT} ]]; then
+	source $SRC/lib/config/boards/${BOARD}.${EXT}
+elif [[ -f $SRC/lib/config/boards/${BOARD}.wip ]]; then
+	# when launching build for WIP board from command line
+	source $SRC/lib/config/boards/${BOARD}.wip
+fi
 
 [[ -z $KERNEL_TARGET ]] && exit_with_error "Board configuration does not define valid kernel config"
 
 if [[ -z $BRANCH ]]; then
 	options=()
-	[[ $KERNEL_TARGET == *default* ]] && options+=("default" "3.4.x - 3.14.x legacy")
-	[[ $KERNEL_TARGET == *next* ]] && options+=("next" "Latest stable @kernel.org")
-	[[ $KERNEL_TARGET == *dev* ]] && options+=("dev" "Latest dev @kernel.org")
+	[[ $KERNEL_TARGET == *default* ]] && options+=("default" "Vendor provided / legacy (3.4.x - 4.4.x)")
+	[[ $KERNEL_TARGET == *next* ]] && options+=("next"       "Mainline (@kernel.org)   (4.x)")
+	[[ $KERNEL_TARGET == *dev* ]] && options+=("dev"         "Development version      (4.x)")
 	# do not display selection dialog if only one kernel branch is available
 	if [[ "${#options[@]}" == 2 ]]; then
 		BRANCH="${options[0]}"
 	else
-		BRANCH=$(dialog --stdout --title "Choose a kernel" --backtitle "$backtitle" --menu "Select one of supported kernels" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
+		BRANCH=$(dialog --stdout --title "Choose a kernel" --backtitle "$backtitle" \
+			--menu "Select the target kernel branch\nExact kernel versions depend on selected board" \
+			$TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
 	fi
 	unset options
 	[[ -z $BRANCH ]] && exit_with_error "No kernel branch selected"
@@ -129,67 +170,57 @@ else
 	[[ $KERNEL_TARGET != *$BRANCH* ]] && exit_with_error "Kernel branch not defined for this board" "$BRANCH"
 fi
 
+# wheezy and trusty targets are obsolete, but still accessible via command line arguments
+# or custom configuration files
 if [[ $KERNEL_ONLY != yes && -z $RELEASE ]]; then
 	options=()
-	options+=("wheezy" "Debian 7 Wheezy (oldstable)")
-	options+=("jessie" "Debian 8 Jessie (stable)")
-	options+=("trusty" "Ubuntu Trusty 14.04.x LTS")
-	options+=("xenial" "Ubuntu Xenial 16.04.x LTS")
-	RELEASE=$(dialog --stdout --title "Choose a release" --backtitle "$backtitle" --menu "Select one of supported releases" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
+	#options+=("wheezy" "Debian 7 Wheezy")
+	options+=("jessie" "Debian 8 Jessie")
+	#options+=("trusty" "Ubuntu Trusty 14.04 LTS")
+	options+=("xenial" "Ubuntu Xenial 16.04 LTS")
+	RELEASE=$(dialog --stdout --title "Choose a release" --backtitle "$backtitle" --menu "Select the target OS release" \
+		$TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
 	unset options
 	[[ -z $RELEASE ]] && exit_with_error "No release selected"
 fi
 
-if [[ $KERNEL_ONLY != yes && -z $BUILD_DESKTOP ]]; then
+if [[ $KERNEL_ONLY != yes && -z $BUILD_DESKTOP && "jessie xenial" == *$RELEASE* ]]; then
 	options=()
-	options+=("no" "Image with console interface")
+	options+=("no" "Image with console interface (server)")
 	options+=("yes" "Image with desktop environment")
-	BUILD_DESKTOP=$(dialog --stdout --title "Choose image type" --backtitle "$backtitle" --no-tags --menu "Select image type" $TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
+	BUILD_DESKTOP=$(dialog --stdout --title "Choose image type" --backtitle "$backtitle" --no-tags --menu "Select the target image type" \
+		$TTY_Y $TTY_X $(($TTY_Y - 8)) "${options[@]}")
 	unset options
 	[[ -z $BUILD_DESKTOP ]] && exit_with_error "No option selected"
 fi
 
 source $SRC/lib/configuration.sh
 
-# The name of the job
-VERSION="Armbian $REVISION ${BOARD^} $DISTRIBUTION $RELEASE $BRANCH"
-
-echo `date +"%d.%m.%Y %H:%M:%S"` $VERSION >> $DEST/debug/output.log
-(cd $SRC/lib; echo "Build script version: $(git rev-parse @)") >> $DEST/debug/output.log
-
-display_alert "Starting Armbian build script" "@host" "info"
-
-# display what we do
-if [[ $KERNEL_ONLY == yes ]]; then
-	display_alert "Compiling kernel" "$BOARD" "info"
-else
-	display_alert "Building" "$VERSION" "info"
-fi
-
 # sync clock
 if [[ $SYNC_CLOCK != no ]]; then
 	display_alert "Syncing clock" "host" "info"
-	eval ntpdate -s ${NTP_SERVER:- pool.ntp.org}
+	ntpdate -s ${NTP_SERVER:- pool.ntp.org}
 fi
 start=`date +%s`
 
-# fetch_from_repo <url> <dir> <ref> <subdir_flag>
-
 [[ $CLEAN_LEVEL == *sources* ]] && cleaning "sources"
 
-display_alert "Downloading sources" "" "info"
-fetch_from_repo "$BOOTSOURCE" "$BOOTDIR" "$BOOTBRANCH" "yes"
-BOOTSOURCEDIR=$BOOTDIR/${BOOTBRANCH##*:}
-fetch_from_repo "$KERNELSOURCE" "$KERNELDIR" "$KERNELBRANCH" "yes"
-LINUXSOURCEDIR=$KERNELDIR/${KERNELBRANCH##*:}
+# ignore updates help on building all images - for internal purposes
+# fetch_from_repo <url> <dir> <ref> <subdir_flag>
+if [[ $IGNORE_UPDATES != yes ]]; then
+	display_alert "Downloading sources" "" "info"
+	fetch_from_repo "$BOOTSOURCE" "$BOOTDIR" "$BOOTBRANCH" "yes"
+	BOOTSOURCEDIR=$BOOTDIR/${BOOTBRANCH##*:}
+	fetch_from_repo "$KERNELSOURCE" "$KERNELDIR" "$KERNELBRANCH" "yes"
+	LINUXSOURCEDIR=$KERNELDIR/${KERNELBRANCH##*:}
+fi
 
-if [[ -n $MISC5 ]]; then fetch_from_github "$MISC5" "$MISC5_DIR"; fi
-if [[ -n $MISC6 ]]; then fetch_from_github "$MISC6" "$MISC6_DIR"; fi
+compile_sunxi_tools
 
-# compile sunxi tools
-if [[ $LINUXFAMILY == sun*i ]]; then
-	compile_sunxi_tools
-	[[ $BRANCH != default && $LINUXFAMILY != sun8i ]] && LINUXFAMILY="sunxi"
+# Here we want to rename LINUXFAMILY from sun4i, sun5i, etc for next and dev branches
+# except for sun8i-dev which is separate from sunxi-dev
+if [[ $LINUXFAMILY == sun*i && $BRANCH != default ]]; then
+    [[ ! ( $LINUXFAMILY == sun8i && $BRANCH == dev ) ]] && LINUXFAMILY="sunxi"
 fi
 
 # define package names
@@ -206,46 +237,31 @@ done
 
 # Compile u-boot if packed .deb does not exist
 if [[ ! -f $DEST/debs/${CHOSEN_UBOOT}_${REVISION}_${ARCH}.deb ]]; then
-	# if requires specific toolchain, check if default is suitable
-	if [[ -n $UBOOT_NEEDS_GCC ]] && ! check_toolchain "UBOOT" "$UBOOT_NEEDS_GCC" ; then
-		# try to find suitable in $SRC/toolchains, exit if not found
-		find_toolchain "UBOOT" "$UBOOT_NEEDS_GCC" "UBOOT_TOOLCHAIN"
-	fi
-	cd $SOURCES/$BOOTSOURCEDIR
-	grab_version "$SOURCES/$BOOTSOURCEDIR" "UBOOT_VER"
-	[[ $FORCE_CHECKOUT == yes ]] && advanced_patch "u-boot" "$BOOTDIR-$BRANCH" "$BOARD" "$BOOTDIR-$BRANCH $UBOOT_VER"
 	compile_uboot
 fi
 
 # Compile kernel if packed .deb does not exist
 if [[ ! -f $DEST/debs/${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb ]]; then
-	# if requires specific toolchain, check if default is suitable
-	if [[ -n $KERNEL_NEEDS_GCC ]] && ! check_toolchain "$KERNEL" "$KERNEL_NEEDS_GCC" ; then
-		# try to find suitable in $SRC/toolchains, exit if not found
-		find_toolchain "KERNEL" "$KERNEL_NEEDS_GCC" "KERNEL_TOOLCHAIN"
-	fi
-	cd $SOURCES/$LINUXSOURCEDIR
-
-	# this is a patch that Ubuntu Trusty compiler works
-	if [[ $(patch --dry-run -t -p1 < $SRC/lib/patch/kernel/compiler.patch | grep Reversed) != "" ]]; then
-		display_alert "Patching kernel for compiler support"
-		[[ $FORCE_CHECKOUT == yes ]] && patch --batch --silent -t -p1 < $SRC/lib/patch/kernel/compiler.patch >> $DEST/debug/output.log 2>&1
-	fi
-
-	grab_version "$SOURCES/$LINUXSOURCEDIR" "KERNEL_VER"
-	[[ $FORCE_CHECKOUT == yes ]] && advanced_patch "kernel" "$LINUXFAMILY-$BRANCH" "$BOARD" "$LINUXFAMILY-$BRANCH $KERNEL_VER"
 	compile_kernel
 fi
 
-[[ -n $RELEASE ]] && create_board_package
+overlayfs_wrapper "cleanup"
 
-# chroot-buildpackages
-[[ $EXTERNAL_NEW == yes ]] && chroot_build_packages
+# extract kernel version from .deb package
+VER=$(dpkg --info $DEST/debs/${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb | grep Descr | awk '{print $(NF)}')
+VER="${VER/-$LINUXFAMILY/}"
+
+# create board support package
+# TODO: check and remove last part of the condition (! -d)
+[[ -n $RELEASE && ! -f $DEST/debs/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH}.deb && ! -d $DEST/debs/$RELEASE/${CHOSEN_ROOTFS}_${REVISION}_${ARCH} ]] && create_board_package
+
+# build additional packages
+[[ $EXTERNAL_NEW == compile ]] && chroot_build_packages
 
 if [[ $KERNEL_ONLY != yes ]]; then
 	debootstrap_ng
 else
-	display_alert "Kernel building done" "@host" "info"
+	display_alert "Kernel build done" "@host" "info"
 	display_alert "Target directory" "$DEST/debs/" "info"
 	display_alert "File name" "${CHOSEN_KERNEL}_${REVISION}_${ARCH}.deb" "info"
 fi

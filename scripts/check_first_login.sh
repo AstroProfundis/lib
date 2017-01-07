@@ -1,8 +1,16 @@
 #!/bin/bash
 # only do this for interactive shells
+
+. /etc/armbian-release
+
 if [ "$-" != "${-#*i}" ]; then
 	if [ -f "$HOME/.not_logged_in_yet" ]; then
-		echo -e "\n\e[0;31mThank you for choosing Armbian! Support: \e[1m\e[39mwww.armbian.com\x1B[0m\n"
+		if [[ $IMAGE_TYPE != nightly ]]; then
+			echo -e "\n\e[0;31mThank you for choosing Armbian! Support: \e[1m\e[39mwww.armbian.com\x1B[0m\n"
+		else
+			echo -e "\nYou are using Armbian nightly build."
+			echo -e "\nIt is provided \e[0;31mAS IS\x1B[0m with \e[0;31mNO WARRANTY\x1B[0m and \e[0;31mNO END USER SUPPORT\x1B[0m.\n"
+		fi
 		echo -e "Creating new account. Please provide a username (eg. your forename): \c"
 		read username
 		RealUserName="$(echo "${username}" | tr '[:upper:]' '[:lower:]' | tr -d -c '[:alnum:]')"
@@ -26,14 +34,14 @@ if [ "$-" != "${-#*i}" ]; then
 			echo -e "h3disp utility. Do you want to change display settings now? [nY] \c"
 			read -n1 ConfigureDisplay
 			if [ "X${ConfigureDisplay}" != "Xn" -a "X${ConfigureDisplay}" != "XN" ]; then
-				echo -e "\n" ; /usr/local/bin/h3disp
+				echo -e "\n" ; h3disp
 			else
 				echo -e "\n"
 			fi
 		fi
 
 		# check whether desktop environment has to be considered
-		if [ -f /etc/init.d/nodm ] ; then 
+		if [ -f /etc/init.d/nodm ] ; then
 			sed -i "s/NODM_USER=\(.*\)/NODM_USER=${RealUserName}/" /etc/default/nodm
 			sed -i "s/NODM_ENABLED=\(.*\)/NODM_ENABLED=true/g" /etc/default/nodm
 			if [[ -z $ConfigureDisplay || $ConfigureDisplay == n || $ConfigureDisplay == N ]]; then

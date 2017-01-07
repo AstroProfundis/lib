@@ -12,7 +12,7 @@ install_mt7601()
 	local plugin_repo="https://github.com/igorpecovnik/mt7601"
 	local plugin_dir="mt7601"
 
-	fetch_from_github "$plugin_repo" "$plugin_dir" "old"
+	fetch_from_repo "$plugin_repo" "$plugin_dir" "branch:old"
 
 	cd $SOURCES/$plugin_dir
 
@@ -65,14 +65,14 @@ install_mt7601()
 	cd src
 	make -s ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" clean >> $DEST/debug/compilation.log 2>&1
 	make -s -j4 ARCH=$ARCHITECTURE CROSS_COMPILE="$CCACHE $KERNEL_COMPILER" LINUX_SRC=$SOURCES/$LINUXSOURCEDIR/ >> $DEST/debug/compilation.log 2>&1
-	cp os/linux/*.ko $CACHEDIR/sdcard/lib/modules/$VER-$LINUXFAMILY/kernel/net/wireless/
-	mkdir -p $CACHEDIR/sdcard/etc/Wireless/RT2870STA
-	cp RT2870STA.dat $CACHEDIR/sdcard/etc/Wireless/RT2870STA/
-	depmod -b $CACHEDIR/sdcard/ $VER-$LINUXFAMILY
+	cp os/linux/*.ko $CACHEDIR/$SDCARD/lib/modules/$VER-$LINUXFAMILY/kernel/net/wireless/
+	mkdir -p $CACHEDIR/$SDCARD/etc/Wireless/RT2870STA
+	cp RT2870STA.dat $CACHEDIR/$SDCARD/etc/Wireless/RT2870STA/
+	depmod -b $CACHEDIR/$SDCARD/ $VER-$LINUXFAMILY
 	make -s clean >/dev/null
 	cd ..
-	mkdir -p $CACHEDIR/sdcard/usr/src/
-	cp -R src $CACHEDIR/sdcard/usr/src/mt7601-3.0.0.4
+	mkdir -p $CACHEDIR/$SDCARD/usr/src/
+	cp -R src $CACHEDIR/$SDCARD/usr/src/mt7601-3.0.0.4
 	# TODO: Set the module to build automatically via dkms in the future here
 }
 

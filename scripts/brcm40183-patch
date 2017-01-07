@@ -3,7 +3,7 @@
 # Provides:          brcm40183-patch
 # Required-Start:    $local_fs
 # Required-Stop:
-# X-Start-Before:    bluetooth  
+# X-Start-Before:    bluetooth
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Patch firmware for brcm40183 Bluetooth adapter
@@ -17,6 +17,9 @@ if [ -r "${DEFAULTS}" ]
 then
 	. "${DEFAULTS}"
 fi
+
+# exit if bluetooth utils are not installed
+[ -f "/bin/hciconfig" ] || exit 0
 
 . /lib/lsb/init-functions
 
@@ -52,7 +55,7 @@ else
     /bin/echo -en "" > /dev/$PORT      # pull down RTS on UART
     log_action_begin_msg  "Start pushing firmware to device and waiting max. 60sec to complete"
 
-    /usr/bin/timeout 60s /usr/bin/brcm_patchram_plus -d --patchram /lib/firmware/ap6210/bcm20710a1.hcd --enable_hci --no2bytes --tosleep 1000 $MAC_OPTIONS /dev/$PORT > /tmp/brcm40183.firmware 2>&1
+    /usr/bin/timeout 20s /usr/bin/brcm_patchram_plus -d --patchram /lib/firmware/ap6210/bcm20710a1.hcd --enable_hci --no2bytes --tosleep 1000 $MAC_OPTIONS /dev/$PORT > /tmp/brcm40183.firmware 2>&1
 
     case "$?" in
         0) log_action_end_msg 0

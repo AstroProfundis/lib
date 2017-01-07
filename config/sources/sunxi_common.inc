@@ -1,7 +1,16 @@
-
 BOOTSOURCE=$MAINLINE_UBOOT_SOURCE
 BOOTDIR=$MAINLINE_UBOOT_DIR
 BOOTBRANCH=$MAINLINE_UBOOT_BRANCH
+BOOTSCRIPT="boot-sunxi.cmd:boot.cmd"
+BOOTENV_FILE='sunxi-default.txt'
+BOOTPATCHDIR="u-boot-sunxi"
+
+UBOOT_TARGET_MAP=';;u-boot-sunxi-with-spl.bin'
+
+UBOOT_ALT_GCC='> 6.1'
+
+HAS_UUID_SUPPORT=yes
+BOOTDELAY=0
 
 case $BRANCH in
 	default)
@@ -9,15 +18,21 @@ case $BRANCH in
 	;;
 
 	next)
-	GOVERNOR=ondemand
+	KERNELSOURCE=$MAINLINE_KERNEL_SOURCE
+	KERNELBRANCH=$MAINLINE_KERNEL_BRANCH
+	KERNELDIR=$MAINLINE_KERNEL_DIR
+
+	GOVERNOR=schedutil
+
+	KERNEL_ALT_GCC='> 6.1'
 	;;
 
 	dev)
-	GOVERNOR=ondemand
+	GOVERNOR=schedutil
+
+	KERNEL_ALT_GCC='> 6.1'
 	;;
 esac
-
-UBOOT_FILES="u-boot-sunxi-with-spl.bin"
 
 write_uboot_platform()
 {
@@ -25,16 +40,25 @@ write_uboot_platform()
 	dd if=$1/u-boot-sunxi-with-spl.bin of=$2 bs=1024 seek=8 status=noxfer > /dev/null 2>&1
 }
 
-install_boot_script()
+setup_write_uboot_platform()
 {
-	cp $SRC/lib/config/bootscripts/boot-sunxi.cmd $CACHEDIR/sdcard/boot/boot.cmd
-
-	# orangepi h3 temp exceptions
-	if [[ $LINUXFAMILY == sun8i ]]; then
-		# u-boot default is nonsec. Legacy requires sec, mainline requires nonsec for SMP
-		local boot_mode=nonsec
-		[[ $BRANCH == default ]] && boot_mode=sec
-		sed -i -e "1s/^/gpio set PL10\ngpio set PG11\nsetenv machid 1029\nsetenv bootm_boot_mode $boot_mode\n/" \
-			-e 's/\ disp.screen0_output_mode=1920x1080p60//' -e 's/\ hdmi.audio=EDID:0//' $CACHEDIR/sdcard/boot/boot.cmd
+	if grep -q "ubootpart" /proc/cmdline; then
+		local tmp=$(cat /proc/cmdline)
+		tmp="${tmp##*ubootpart=}"
+		tmp="${tmp%% *}"
+		[[ -n $tmp ]] && local part=$(findfs PARTUUID=$tmp 2>/dev/null)
+		[[ -n $part ]] && local dev=$(lsblk -n -o PKNAME $part 2>/dev/null)
+		[[ -n $dev ]] && DEVICE="/dev/$dev"
+	elif [[ -f /var/lib/armbian/force_search_uboot ]]; then
+		# This may cause overwriting u-boot for android or other non-Armbian OS installed on eMMC
+		# so don't run this function by default
+		for dev in $(lsblk -d -n -p -o NAME); do
+			if grep -q 'eGON.BT0' <(dd if=$dev bs=32 skip=256 count=1 status=none); then
+				# Assuming that only one device with SPL signature is present
+				echo "SPL signature found on $dev" >&2
+				DEVICE=$dev
+				break
+			fi
+		done
 	fi
 }

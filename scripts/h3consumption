@@ -144,7 +144,7 @@ CheckInstallation() {
 } # CheckInstallation
 
 ParseOptions() {
-	while getopts 'hHvVpPe:E:m:M:c:C:d:D:u:U:g:G:' c ; do
+	while getopts 'hHvVpPe:E:m:M:c:C:d:D:u:U:g:G:w:W:' c ; do
 	case ${c} in
 		H)
 			export FullUsage=TRUE
@@ -200,6 +200,10 @@ ParseOptions() {
 			PrintActiveSettings
 			exit 0
 			;;
+		w|W)
+			# Wi-Fi powermanagement
+			WiFi=$(echo -n ${OPTARG} | tr '[:upper:]' '[:lower:]')
+			;;
 	esac
 	done
 } # ParseOptions
@@ -227,6 +231,54 @@ ChangeSettings() {
 			;;
 		*)
 			echo "Parameter error: -e requires either on, fast or off. Exiting" >&2
+			exit 1
+			;;
+	esac
+
+	# Wi-Fi powermanagement
+	case ${WiFi} in
+		"")
+			: ;;
+		on)
+			rm -f /etc/NetworkManager/dispatcher.d/99enable-power-management \
+				/etc/NetworkManager/dispatcher.d/99disable-power-management \
+				/etc/NetworkManager/conf.d/zz-override-wifi-powersave-off.conf
+
+			;;
+		off)
+			rm -f /etc/NetworkManager/dispatcher.d/99enable-power-management \
+				/etc/NetworkManager/dispatcher.d/99disable-power-management \
+				/etc/NetworkManager/conf.d/zz-override-wifi-powersave-off.conf
+
+			echo "Note: This action applies only to NetworkManager based connections"
+
+			case "$(lsb_release -sc)" in
+			jessie)
+				mkdir -p /etc/NetworkManager/dispatcher.d/
+				cat <<-'EOF' > /etc/NetworkManager/dispatcher.d/99disable-power-management
+				#!/bin/sh
+				case "$2" in
+					up) /sbin/iwconfig $1 power off || true ;;
+					down) /sbin/iwconfig $1 power on || true ;;
+				esac
+				EOF
+				chmod 755 /etc/NetworkManager/dispatcher.d/99disable-power-management
+				;;
+			xenial)
+				mkdir -p /etc/NetworkManager/conf.d/
+				cat <<-EOF > /etc/NetworkManager/conf.d/zz-override-wifi-powersave-off.conf
+				[connection]
+				wifi.powersave = 2
+				EOF
+				;;
+			*)
+				echo "This action is supported only in Jessie and Xenial based releases. Exiting" >&2
+				exit 1
+				;;
+			esac
+			;;
+		*)
+			echo "Parameter error: -w requires either on or off. Exiting" >&2
 			exit 1
 			;;
 	esac
@@ -406,7 +458,8 @@ DisplayUsage() {
 	echo -e " ${BOLD}-d dram_freq${NC}    adjusts dram clockspeed (408 - 624 mhz)"
 	echo -e " ${BOLD}-D dram_freq${NC}    like -d but as low as 132 mhz possible (experimental!)"
 	echo -e " ${BOLD}-u on|off${NC}       enables/disabled all USB ports"
-	echo -e " ${BOLD}-e on|off|fast${NC}  enables/disables Ethernet, the fast switch\n                 forces 100 mbits/sec negotiation on gigabit devices\n"
+	echo -e " ${BOLD}-e on|off|fast${NC}  enables/disables Ethernet, the fast switch\n                 forces 100 mbits/sec negotiation on gigabit devices"
+	echo -e " ${BOLD}-w on|off${NC}       enables/disables Wi-Fi powermanagement when interface\n                 supports this and is controlled by network-manager\n"
 	echo -e "############################################################################\n"
 } # DisplayUsage
 

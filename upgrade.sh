@@ -24,9 +24,9 @@ title="Armbian universal installer 2015.11"
 display_warning()
 {
 read -r -d '' MOJTEXT << EOM
-1. Please do a backup even the script doesn't plan to ruin anything critical.
+1. Please do a backup even if the script doesn't plan to ruin anything critical.
 
-2. If you choose wrong board you might end up with not bootable system.
+2. If you choose the wrong board you might end up with a non-bootable system.
 
 3. We are going to remove current kernel package together with headers, firmware and board definitions.
 
@@ -51,7 +51,7 @@ create_boot_script ()
 [ -f "/boot/boot.cmd" ] && cp /boot/boot.cmd /boot/boot.cmd.backup
 cat > /boot/boot.cmd <<EOT
 setenv bootargs "console=tty1 root=$rootdevice rootwait rootfstype=ext4 sunxi_ve_mem_reserve=0 sunxi_g2d_mem_reserve=0 \
-sunxi_no_mali_mem_reserve sunxi_fb_mem_reserve=16 hdmi.audio=EDID:0 disp.screen0_output_mode=1920x1080p60 panic=10 \
+sunxi_fb_mem_reserve=16 hdmi.audio=EDID:0 disp.screen0_output_mode=1920x1080p60 panic=10 \
 consoleblank=0 enforcing=0 loglevel=1"
 #-----------------------------------------------------------------------------------------------------------------------
 # Boot loader script to boot with different boot methods for old and new kernel
@@ -74,7 +74,7 @@ bootz 0x48000000
 #-----------------------------------------------------------------------------------------------------------------------
 fi
 # Recompile with:
-# mkimage -C none -A arm -T script -d /boot/boot.cmd /boot/boot.scr 
+# mkimage -C none -A arm -T script -d /boot/boot.cmd /boot/boot.scr
 EOT
 mkimage -C none -A arm -T script -d  /boot/boot.cmd  /boot/boot.scr >/dev/null 2>&1
 }
@@ -120,22 +120,22 @@ get_hardware_info ()
 
 # arhitecture
 ARCH=$(lscpu | grep Architecture  | awk '{print $2}')
-if [[ "$ARCH" != arm* ]]; then 
-	echo -e "[\e[0;31m error \x1B[0m] Architecture not supported"; exit; 
+if [[ "$ARCH" != arm* ]]; then
+	echo -e "[\e[0;31m error \x1B[0m] Architecture not supported"; exit;
 fi
 
 # CPU
 HARDWARE=$(cat /proc/cpuinfo | grep Hardware | awk '{print $3}')
-if [[ !( "$HARDWARE" == "sun7i" || "$HARDWARE" == "Allwinner" || "$HARDWARE" == "sun4i" ) ]]; then 
-	echo -e "[\e[0;31m error \x1B[0m] Unsupported hw"; exit; 
+if [[ !( "$HARDWARE" == "sun7i" || "$HARDWARE" == "Allwinner" || "$HARDWARE" == "sun4i" ) ]]; then
+	echo -e "[\e[0;31m error \x1B[0m] Unsupported hw"; exit;
 fi
 
 # boot partition
 bootdevice="/dev/mmcblk0p1";
 
 # if mmc is not present than boot can only be nand1
-if [[ "$(grep nand /proc/partitions)" != "" && "$(grep mmc /proc/partitions)" == "" ]]; then 
-bootdevice="/dev/nand1"; 
+if [[ "$(grep nand /proc/partitions)" != "" && "$(grep mmc /proc/partitions)" == "" ]]; then
+bootdevice="/dev/nand1";
 fi
 
 # root partition
@@ -157,7 +157,7 @@ mount_boot_device ()
 #-----------------------------------------------------------------------------------------------------------------------
 {
 if [[ "$bootdevice" == "/dev/mmcblk0p1" && "$rootdevice" != "/dev/mmcblk0p1" ]]; then
-	umount /boot /media/mmc 
+	umount /boot /media/mmc
 	mkdir -p /media/mmc/boot
 	mount /dev/mmcblk0p1 /media/mmc/
     if [ -d "/media/mmc/boot/" ]; then
@@ -189,15 +189,15 @@ A20 Lime2 A20 Micro A20 Bananapipro A20 Lamobo-R1 A20 Orangepi A20 Pcduino3nano 
 	BOARD=${BoardChoices,,}
 fi
 # exit the script on cancel
-if [ "$BOARD" == "" ]; then echo "ERROR: You have to choose one board"; exit; fi
+if [ "$BOARD" == "" ]; then echo "ERROR: You have to choose a board"; exit; fi
 
 
 if [ -z "$BRANCH" ]; then
 	IFS="'"
 	declare -a Options=("legacy'3.4.x - 3.14.x most supported'vanilla'4.x Vanilla from www.kernel.org");
 	# Exceptions
-	if [[ $BOARD == "cubox-i" || $BOARD == "udoo-neo" || "$bootdevice" == "/dev/nand1" ]]; then 
-		declare -a Options=("legacy'3.4.x - 3.14.x most supported"); 
+	if [[ $BOARD == "cubox-i" || $BOARD == "udoo-neo" || "$bootdevice" == "/dev/nand1" ]]; then
+		declare -a Options=("legacy'3.4.x - 3.14.x most supported");
 	fi
 	BoardOptions=($Options);
 	BoardCmd=(dialog --title "Choose a board:" --backtitle "$backtitle" --menu "\n$infos" 10 60 16)
@@ -206,14 +206,14 @@ if [ -z "$BRANCH" ]; then
 fi
 
 # exit the script on cancel
-if [ "$BRANCH" == "" ]; then echo "ERROR: You have to choose one branch"; exit; fi
+if [ "$BRANCH" == "" ]; then echo "ERROR: You have to choose a branch"; exit; fi
 
 
 if [[ $BRANCH == "vanilla" ]] ; then
 	ROOT_BRACH="-next"
 	else
 	ROOT_BRACH=""
-fi 
+fi
 
 case $BOARD in
 bananapipro | lamobo-r1 | orangepi | orangepimini)
@@ -236,22 +236,22 @@ if [[ $BRANCH == "vanilla" ]] ; then LINUXFAMILY="sunxi"; fi
 ;;
 esac
 
-if [[ $BOARD == "cubox-i" || $BOARD == udoo* || $BRANCH == "vanilla" ]]; 
-	then PACKETS="linux-dtb$ROOT_BRACH-$LINUXFAMILY"; 
+if [[ $BOARD == "cubox-i" || $BOARD == udoo* || $BRANCH == "vanilla" ]];
+	then PACKETS="linux-dtb$ROOT_BRACH-$LINUXFAMILY";
 fi
 
 PACKETS="linux-image$ROOT_BRACH-$LINUXFAMILY linux-firmware-image$ROOT_BRACH-$LINUXFAMILY \
 linux-u-boot-$BOARD$ROOT_BRACH linux-headers$ROOT_BRACH-$LINUXFAMILY linux-$RELEASE-root$ROOT_BRACH-$BOARD $PACKETS"
 }
 
- 
+
 remove_old ()
 #-----------------------------------------------------------------------------------------------------------------------
 # Delete previous kernel
 #-----------------------------------------------------------------------------------------------------------------------
 {
 clear
-dialog --title "$title" --backtitle "$backtitle"  --infobox "\nRemoving conflicting packages ..." 5 41
+dialog --title "$title" --backtitle "$backtitle"  --infobox "\nRemoving conflicting packages..." 5 41
 aptitude remove ~nlinux-dtb --quiet=100 >> upgrade.log
 aptitude remove ~nlinux-u-boot --quiet=100 >> upgrade.log
 aptitude remove ~nlinux-image --quiet=100 >> upgrade.log
@@ -267,10 +267,10 @@ install_new ()
 #-----------------------------------------------------------------------------------------------------------------------
 {
 IFS=" "
-apt-get $1 -y install $PACKETS 2>&1 | dialog --title "$title" --backtitle "$backtitle" --progressbox "$2" 20 80 
-if [ $? -ne 0 ]; then 
-dialog --title "$title" --backtitle "$backtitle"  --infobox "\nError downloadiing." 5 41
-exit 1; 
+apt-get $1 -y install $PACKETS 2>&1 | dialog --title "$title" --backtitle "$backtitle" --progressbox "$2" 20 80
+if [ $? -ne 0 ]; then
+dialog --title "$title" --backtitle "$backtitle"  --infobox "\nError during new packages download." 5 41
+exit 1;
 fi
 }
 
@@ -283,7 +283,7 @@ fi
 # This tool must run under root
 #-----------------------------------------------------------------------------------------------------------------------
 if [[ ${EUID} -ne 0 ]]; then
-	echo "This tool must run as root. Exiting ..." 
+	echo "This tool must be run as root. Exiting..."
 	exit 1
 fi
 
@@ -297,9 +297,9 @@ if [[ $(dpkg-query -W -f='${Status}' dialog 2>/dev/null | grep -c "ok installed"
 	  $(dpkg-query -W -f='${Status}' lsb-release 2>/dev/null | grep -c "ok installed") -eq 0 || \
 	  $(dpkg-query -W -f='${Status}' aptitude 2>/dev/null | grep -c "ok installed") -eq 0 \
 	]]; then
-echo "Downloading dependencies ... please wait"
+echo "Downloading dependencies... please wait"
 apt-get install -qq -y dialog u-boot-tools debconf-utils lsb-release aptitude fake-hwclock >/dev/null 2>&1
-fi 
+fi
 
 display_warning
 install_repo
@@ -321,5 +321,5 @@ dialog --title "$title" --backtitle "$backtitle"  --yes-label "Reboot" --no-labe
 --yesno "\nAll done." 7 60
 if [ $? -eq 0 ]; then reboot; fi
 
-echo "Visit: forum.armbian.com in case of troubles or just for fun ;)"
+echo "Visit: forum.armbian.com in case of trouble or just for fun ;)"
 echo ""

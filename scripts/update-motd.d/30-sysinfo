@@ -123,14 +123,15 @@ if [ -d "/sys/devices/virtual/thermal/thermal_zone0/" ]; then
 	ln -fs /sys/devices/virtual/thermal/thermal_zone0/temp /etc/armbianmonitor/datasources/soctemp
 fi
 
-# lemaker guitar
-if [[ -d "/sys/devices/virtual/thermal/thermal_zone1/" && $board_temp == "0" ]]; then
+# lemaker guitar / roseapple pi
+source /etc/armbian-release
+if [[ -d "/sys/devices/virtual/thermal/thermal_zone1/" && ${LINUXFAMILY} == "s500" ]]; then
 	board_temp=$(awk '{printf("%d",$1/1000)}' </sys/devices/virtual/thermal/thermal_zone1/temp)
 	ln -fs /sys/devices/virtual/thermal/thermal_zone1/temp /etc/armbianmonitor/datasources/soctemp
 fi
 
 # H3 based boards, legacy kernel
-if [[ -d "/sys/class/thermal/thermal_zone1" && $board_temp == "0" ]]; then
+if [[ -d "/sys/class/thermal/thermal_zone1" && ${LINUXFAMILY} == "sun8i" ]]; then
 	read board_temp </sys/class/thermal/thermal_zone1/temp
 	ln -fs /sys/devices/virtual/thermal/thermal_zone1/temp /etc/armbianmonitor/datasources/soctemp
 fi
@@ -139,7 +140,8 @@ fi
 if [[ -n $(which temper) && $(dpkg --print-architecture) == armhf ]]; then
    amb_temp=$(temper -c)
    if echo $amb_temp | egrep -qv "Couldn't find the USB device"; then
-      amb_temp=$(echo "scale=1;${amb_temp}/1" | bc)
+	  amb_temp=$(echo $amb_temp | awk '{print $NF}' |  sed 's/C//g')   
+	  amb_temp=$(echo "scale=1;${amb_temp}/1" | bc)
   else
       amb_temp="" 
   fi

@@ -9,7 +9,7 @@
 # This file is a part of tool chain https://github.com/igorpecovnik/lib
 #
 
-# This scripts recreates deb repository from files in directory POT
+# This script recreates deb repository from files in directory POT
 #
 # each file is added three times! wheezy-jessie-trusty
 #
@@ -30,5 +30,4 @@ addtorepo
 cp bin/armbian.key ../output/repository/public
 cd ../output/repository/public
 
-# upload to server with rsync
 echo "done."
