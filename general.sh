@@ -578,8 +578,8 @@ download_toolchain()
 	cd $SRC/toolchains/
 
 	display_alert "Downloading toolchain" "$dirname" "info"
-	curl -Lf --progress-bar $url -o $filename
-	curl -Lf --progress-bar ${url}.asc -o ${filename}.asc
+	curl -Lf --progress-bar $PROXY $url -o $filename
+	curl -Lf --progress-bar $PROXY ${url}.asc -o ${filename}.asc
 
 	local verified=false
 
