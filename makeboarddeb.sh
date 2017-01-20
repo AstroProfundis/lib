@@ -103,9 +103,7 @@ create_board_package()
 	mkdir -p $destination/etc/init.d
 	mkdir -p $destination/etc/default
 
-	install -m 755 $SRC/lib/scripts/resize2fs $destination/etc/init.d
-	install -m 755 $SRC/lib/scripts/firstrun  $destination/etc/init.d
-	install -m 755 $SRC/lib/scripts/armhwinfo $destination/etc/init.d
+	install -m 755 $SRC/lib/scripts/armhwinfo $destination/etc/init.d/
 
 	# configure MIN / MAX speed for cpufrequtils
 	mkdir -p $destination/etc/default
@@ -185,7 +183,6 @@ create_board_package()
 	# network interfaces configuration
 	mkdir -p $destination/etc/network/
 	cp $SRC/lib/config/network/interfaces.* $destination/etc/network/
-	[[ $RELEASE = wheezy ]] && sed -i 's/allow-hotplug/auto/g' $destination/etc/network/interfaces.default
 	[[ $RELEASE = xenial ]] && sed -i 's/#no-auto-down/no-auto-down/g' $destination/etc/network/interfaces.default
 
 	# apt configuration

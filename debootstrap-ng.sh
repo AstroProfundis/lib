@@ -64,12 +64,10 @@ debootstrap_ng()
 	# install desktop files
 	[[ $BUILD_DESKTOP == yes ]] && install_desktop
 
-	if [[ $RELEASE == jessie || $RELEASE == xenial ]]; then
-		# install locally built packages
-		[[ $EXTERNAL_NEW == compile ]] && chroot_installpackages_local
-		# install from apt.armbian.com
-		[[ $EXTERNAL_NEW == prebuilt ]] && chroot_installpackages "yes"
-	fi
+	# install locally built packages
+	[[ $EXTERNAL_NEW == compile ]] && chroot_installpackages_local
+	# install from apt.armbian.com
+	[[ $EXTERNAL_NEW == prebuilt ]] && chroot_installpackages "yes"
 
 	# cleanup for install_kernel and install_board_specific
 	umount $CACHEDIR/$SDCARD/tmp/debs
@@ -116,12 +114,12 @@ debootstrap_ng()
 create_rootfs_cache()
 {
 	local packages_hash=$(get_package_list_hash)
-	local cache_fname=$CACHEDIR/rootfs/${RELEASE}-ng-$ARCH.$packages_hash.tgz
-	local display_name=${RELEASE}-ng-$ARCH.${packages_hash:0:3}...${packages_hash:29}.tgz
+	local cache_fname=$CACHEDIR/rootfs/${RELEASE}-ng-$ARCH.$packages_hash.tar.lz4
+	local display_name=${RELEASE}-ng-$ARCH.${packages_hash:0:3}...${packages_hash:29}.tar.lz4
 	if [[ -f $cache_fname ]]; then
 		local date_diff=$(( ($(date +%s) - $(stat -c %Y $cache_fname)) / 86400 ))
 		display_alert "Extracting $display_name" "$date_diff days old" "info"
-		pv -p -b -r -c -N "$display_name" "$cache_fname" | pigz -dc | tar xp --xattrs -C $CACHEDIR/$SDCARD/
+		pv -p -b -r -c -N "$display_name" "$cache_fname" | lz4 -dc | tar xp --xattrs -C $CACHEDIR/$SDCARD/
 	else
 		display_alert "Creating new rootfs for" "$RELEASE" "info"
 
@@ -134,8 +132,8 @@ create_rootfs_cache()
 			local apt_mirror="http://$APT_MIRROR"
 		fi
 
-		# fancy progress bars (except for Wheezy target)
-		[[ -z $OUTPUT_DIALOG && $RELEASE != wheezy ]] && local apt_extra_progress="--show-progress -o DPKG::Progress-Fancy=1"
+		# fancy progress bars
+		[[ -z $OUTPUT_DIALOG ]] && local apt_extra_progress="--show-progress -o DPKG::Progress-Fancy=1"
 
 		display_alert "Installing base system" "Stage 1/2" "info"
 		eval 'debootstrap --include=locales ${PACKAGE_LIST_EXCLUDE:+ --exclude=${PACKAGE_LIST_EXCLUDE// /,}} \
@@ -189,14 +187,8 @@ create_rootfs_cache()
 		create_sources_list "$RELEASE" "$CACHEDIR/$SDCARD/"
 
 		# stage: add armbian repository and install key
-		case $RELEASE in
-		wheezy|trusty)
-			echo "deb http://apt.armbian.com $RELEASE main" > $CACHEDIR/$SDCARD/etc/apt/sources.list.d/armbian.list
-		;;
-		jessie|xenial)
-			echo "deb http://apt.armbian.com $RELEASE main utils ${RELEASE}-desktop" > $CACHEDIR/$SDCARD/etc/apt/sources.list.d/armbian.list
-		;;
-		esac
+		echo "deb http://apt.armbian.com $RELEASE main utils ${RELEASE}-desktop" > $CACHEDIR/$SDCARD/etc/apt/sources.list.d/armbian.list
+
 		cp $SRC/lib/bin/armbian.key $CACHEDIR/$SDCARD
 		eval 'chroot $CACHEDIR/$SDCARD /bin/bash -c "cat armbian.key | apt-key add -"' \
 			${OUTPUT_VERYSILENT:+' >/dev/null 2>/dev/null'}
@@ -249,7 +241,7 @@ create_rootfs_cache()
 		umount_chroot "$CACHEDIR/$SDCARD"
 
 		tar cp --xattrs --directory=$CACHEDIR/$SDCARD/ --exclude='./dev/*' --exclude='./proc/*' --exclude='./run/*' --exclude='./tmp/*' \
-			--exclude='./sys/*' . | pv -p -b -r -s $(du -sb $CACHEDIR/$SDCARD/ | cut -f1) -N "$display_name" | pigz --fast > $cache_fname
+			--exclude='./sys/*' . | pv -p -b -r -s $(du -sb $CACHEDIR/$SDCARD/ | cut -f1) -N "$display_name" | lz4 -c > $cache_fname
 	fi
 	mount_chroot "$CACHEDIR/$SDCARD"
 } #############################################################################
@@ -443,7 +435,7 @@ prepare_partitions()
 create_image()
 {
 	# stage: create file name
-	local version="Armbian_${REVISION}_${BOARD^}_${DISTRIBUTION}_${RELEASE}_${VER/-$LINUXFAMILY/}"
+	local version="Armbian_${REVISION}_${BOARD^}_${DISTRIBUTION}_${RELEASE}_${BRANCH}_${VER/-$LINUXFAMILY/}"
 	[[ $BUILD_DESKTOP == yes ]] && version=${version}_desktop
 	[[ $ROOTFS_TYPE == nfs ]] && version=${version}_nfsboot
 
@@ -483,7 +475,10 @@ create_image()
 	mkdir -p $CACHEDIR/$DESTIMG
 	cp $CACHEDIR/$SDCARD/etc/armbian.txt $CACHEDIR/$DESTIMG
 	mv $CACHEDIR/${SDCARD}.raw $CACHEDIR/$DESTIMG/${version}.img
-	[[ $BUILD_ALL != yes ]] && cp $CACHEDIR/$DESTIMG/${version}.img $DEST/images/${version}.img
+	if [[ $BUILD_ALL != yes ]]; then
+		mv $CACHEDIR/$DESTIMG/${version}.img $DEST/images/${version}.img
+		rm -rf $CACHEDIR/$DESTIMG
+	fi
 	display_alert "Done building" "$DEST/images/${version}.img" "info"
 
 } #############################################################################

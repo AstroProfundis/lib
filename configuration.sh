@@ -49,7 +49,7 @@ else
 	MAINLINE_UBOOT_SOURCE='git://git.denx.de/u-boot.git'
 fi
 #MAINLINE_UBOOT_BRANCH="v$(git ls-remote git://git.denx.de/u-boot.git | grep -v rc | grep -v '\^' | tail -1 | cut -d'v' -f 2)"
-MAINLINE_UBOOT_BRANCH='tag:v2016.11'
+MAINLINE_UBOOT_BRANCH='tag:v2017.01'
 MAINLINE_UBOOT_DIR='u-boot'
 
 # Let's set default data if not defined in board configuration above
@@ -105,7 +105,7 @@ fi
 [[ -z $LINUXCONFIG ]] && LINUXCONFIG="linux-${LINUXFAMILY}-${BRANCH}"
 
 # naming to distro
-if [[ $RELEASE == trusty || $RELEASE == xenial ]]; then DISTRIBUTION="Ubuntu"; else DISTRIBUTION="Debian"; fi
+if [[ $RELEASE == xenial ]]; then DISTRIBUTION="Ubuntu"; else DISTRIBUTION="Debian"; fi
 
 # temporary hacks/overrides
 case $LINUXFAMILY in
@@ -134,32 +134,26 @@ PACKAGE_LIST="$PACKAGE_LIST automake libwrap0-dev libssl-dev libusb-dev libusb-1
 # Non-essential packages
 PACKAGE_LIST_ADDITIONAL="alsa-utils btrfs-tools dosfstools hddtemp iotop iozone3 stress sysbench screen ntfs-3g vim pciutils \
 	evtest htop pv lsof apt-transport-https libfuse2 libdigest-sha-perl libproc-processtable-perl aptitude dnsutils f3 haveged \
-	hdparm rfkill vlan sysstat bluez bluez-tools bash-completion hostapd git ethtool network-manager unzip ifenslave-2.6 lirc"
+	hdparm rfkill vlan sysstat bluez bluez-tools bash-completion hostapd git ethtool network-manager unzip ifenslave-2.6 lirc \
+	libpam-systemd iperf3 software-properties-common libnss-myhostname f2fs-tools"
 
 PACKAGE_LIST_DESKTOP="xserver-xorg xserver-xorg-video-fbdev gvfs-backends gvfs-fuse xfonts-base xinit nodm x11-xserver-utils xfce4 lxtask xterm mirage thunar-volman galculator \
 	gtk2-engines gtk2-engines-murrine gtk2-engines-pixbuf libgtk2.0-bin gcj-jre-headless xfce4-screenshooter libgnome2-perl gksu bluetooth \
 	network-manager-gnome xfce4-notifyd gnome-keyring gcr libgck-1-0 libgcr-3-common p11-kit pasystray pavucontrol pulseaudio \
-	paman pavumeter pulseaudio-module-gconf pulseaudio-module-bluetooth blueman libpam-gnome-keyring libgl1-mesa-dri mpv"
+	paman pavumeter pulseaudio-module-gconf pulseaudio-module-bluetooth blueman libpam-gnome-keyring libgl1-mesa-dri mpv \
+	libreoffice-writer libreoffice-style-tango libreoffice-gtk policykit-1"
 
 PACKAGE_LIST_EXCLUDE="xfce4-mixer"
 
 # Release specific packages
 case $RELEASE in
-	wheezy)
-	PACKAGE_LIST_RELEASE="less makedev kbd acpid acpi-support-base iperf libudev1"
-	;;
 	jessie)
-	PACKAGE_LIST_RELEASE="less makedev kbd libpam-systemd iperf3 software-properties-common libnss-myhostname f2fs-tools"
-	PACKAGE_LIST_DESKTOP="$PACKAGE_LIST_DESKTOP mozo pluma iceweasel libreoffice-writer libreoffice-style-tango libreoffice-gtk policykit-1 policykit-1-gnome eject"
-	;;
-	trusty)
-	PACKAGE_LIST_RELEASE="man-db wget nano software-properties-common iperf f2fs-tools acpid"
-	PACKAGE_LIST_EXCLUDE="$PACKAGE_LIST_EXCLUDE ureadahead plymouth"
+	PACKAGE_LIST_RELEASE="less makedev kbd"
+	PACKAGE_LIST_DESKTOP="$PACKAGE_LIST_DESKTOP mozo pluma iceweasel policykit-1-gnome eject"
 	;;
 	xenial)
-	PACKAGE_LIST_RELEASE="man-db wget nano libpam-systemd software-properties-common libnss-myhostname f2fs-tools iperf3"
-	PACKAGE_LIST_DESKTOP="$PACKAGE_LIST_DESKTOP libreoffice-writer libreoffice-style-tango libreoffice-gtk thunderbird firefox gnome-icon-theme-full tango-icon-theme \
-		policykit-1 language-selector-gnome paprefs"
+	PACKAGE_LIST_RELEASE="man-db wget nano"
+	PACKAGE_LIST_DESKTOP="$PACKAGE_LIST_DESKTOP thunderbird firefox gnome-icon-theme-full tango-icon-theme language-selector-gnome paprefs mate-utils ubuntu-mate-welcome mate-settings-daemon"
 	;;
 esac
 

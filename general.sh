@@ -110,7 +110,7 @@ get_package_list_hash()
 
 # create_sources_list <release> <basedir>
 #
-# <release>: wheezy|jessie|trusty|xenial
+# <release>: jessie|xenial
 # <basedir>: path to root directory
 #
 create_sources_list()
@@ -120,7 +120,7 @@ create_sources_list()
 	[[ -z $basedir ]] && exit_with_error "No basedir passed to create_sources_list"
 
 	case $release in
-	wheezy|jessie)
+	jessie)
 	cat <<-EOF > $basedir/etc/apt/sources.list
 	deb http://${DEBIAN_MIRROR} $release main contrib non-free
 	#deb-src http://${DEBIAN_MIRROR} $release main contrib non-free
@@ -136,7 +136,7 @@ create_sources_list()
 	EOF
 	;;
 
-	trusty|xenial)
+	xenial)
 	cat <<-EOF > $basedir/etc/apt/sources.list
 	deb http://${UBUNTU_MIRROR} $release main restricted universe multiverse
 	#deb-src http://${UBUNTU_MIRROR} $release main restricted universe multiverse
@@ -197,9 +197,11 @@ fetch_from_repo()
 	cd $SOURCES/$workdir
 
 	# check if existing remote URL for the repo or branch does not match current one
-	if [[ $(git rev-parse --is-inside-work-tree 2>/dev/null) == true && \
+	# may not be supported by older git versions
+	local current_url=$(git remote get-url origin 2>/dev/null)
+	if [[ -n $current_url && $(git rev-parse --is-inside-work-tree 2>/dev/null) == true && \
 				$(git rev-parse --show-toplevel) == $(pwd) && \
-				$(git remote get-url origin) != $url ]]; then
+				$current_url != $url ]]; then
 		display_alert "Remote URL does not match, removing existing local copy"
 		rm -rf .git *
 	fi
@@ -351,7 +353,7 @@ addtorepo()
 # add all deb files to repository
 # parameter "remove" dumps all and creates new
 # function: cycle trough distributions
-	local distributions=("wheezy" "jessie" "trusty" "xenial")
+	local distributions=("jessie" "xenial")
 
 	for release in "${distributions[@]}"; do
 
@@ -468,11 +470,11 @@ prepare_host()
 	fi
 
 	# packages list for host
-	local hostdeps="wget ca-certificates device-tree-compiler pv bc lzop zip binfmt-support build-essential ccache debootstrap ntpdate pigz \
+	local hostdeps="wget ca-certificates device-tree-compiler pv bc lzop zip binfmt-support build-essential ccache debootstrap ntpdate \
 	gawk gcc-arm-linux-gnueabihf gcc-arm-linux-gnueabi qemu-user-static u-boot-tools uuid-dev zlib1g-dev unzip libusb-1.0-0-dev ntpdate \
 	parted pkg-config libncurses5-dev whiptail debian-keyring debian-archive-keyring f2fs-tools libfile-fcntllock-perl rsync libssl-dev \
 	nfs-kernel-server btrfs-tools gcc-aarch64-linux-gnu ncurses-term p7zip-full dos2unix dosfstools libc6-dev-armhf-cross libc6-dev-armel-cross \
-	libc6-dev-arm64-cross curl gcc-arm-none-eabi libnewlib-arm-none-eabi patchutils"
+	libc6-dev-arm64-cross curl gcc-arm-none-eabi libnewlib-arm-none-eabi patchutils python liblz4-tool"
 
 	local codename=$(lsb_release -sc)
 	display_alert "Build host OS release" "${codename:-(unknown)}" "info"

@@ -29,7 +29,7 @@ from=0
 
 rm -rf /run/armbian
 mkdir -p /run/armbian
-RELEASE_LIST=("trusty" "xenial" "wheezy" "jessie")
+RELEASE_LIST=("xenial" "jessie")
 BRANCH_LIST=("default" "next" "dev")
 
 
@@ -39,7 +39,7 @@ pack_upload ()
 
 # stage: init
 display_alert "Signing and compressing" "Please wait!" "info"
-local version="Armbian_${REVISION}_${BOARD^}_${DISTRIBUTION}_${RELEASE}_${VER/-$LINUXFAMILY/}"
+local version="Armbian_${REVISION}_${BOARD^}_${DISTRIBUTION}_${RELEASE}_${BRANCH}_${VER/-$LINUXFAMILY/}"
 local subdir="archive"
 [[ $BUILD_DESKTOP == yes ]] && version=${version}_desktop
 [[ $BETA == yes ]] && local subdir=nightly
@@ -206,7 +206,7 @@ for line in "${buildlist[@]}"; do
 	n=$[$n+1]
 	[[ -z $RELEASE ]] && RELEASE=$FORCEDRELEASE;
 	if [[ $from -le $n ]]; then
-
+		[[ -z $BUILD_DESKTOP ]] && BUILD_DESKTOP="no"
 		jobs=$(ls /run/armbian | wc -l)
 		if [[ $jobs -lt $MULTITHREAD ]]; then
 			display_alert "Building in the back $n / ${#buildlist[@]}" "Board: $BOARD Kernel:$BRANCH${RELEASE:+ Release: $RELEASE}${BUILD_DESKTOP:+ Desktop: $BUILD_DESKTOP}" "ext"
