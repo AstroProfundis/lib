@@ -285,7 +285,8 @@ formatnand()
 	else
 		(echo y;) | sunxi-nand-part -f a10 /dev/nand 65536 'bootloader 65536' 'linux 0' >> $logfile 2>&1
 	fi
-	mkfs.vfat -qF /dev/nand1 >> $logfile 2>&1
+	# The option -qF does not exist on mkfs.vfat
+	mkfs.vfat -F /dev/nand1 >> $logfile 2>&1
 	mkfs.ext4 -qF /dev/nand2 >> $logfile 2>&1
 }
 
@@ -298,7 +299,7 @@ formatemmc()
 	IFS=" "
 	BTRFS=$(cat /proc/filesystems | grep -o  btrfs)
 	FilesystemTargets="1 ext4 2 ext3 3 ext2"
-	[[ -n $BTRFS && `uname -r | grep -v '^3.4.' ` ]] && FilesystemTargets=$FilesystemTargets" 4 $BTRFS"
+	[[ -n $BTRFS && `uname -r | grep '^4.' ` ]] && FilesystemTargets=$FilesystemTargets" 4 $BTRFS"
 	FilesystemOptions=($FilesystemTargets)
 
 	FilesystemCmd=(dialog --title "Select filesystem type for eMMC $1" --backtitle "$backtitle" --menu "\n$infos" 10 60 16)
@@ -357,7 +358,7 @@ formatsata()
 	IFS=" "
 	BTRFS=$(cat /proc/filesystems | grep -o  btrfs)
 	FilesystemTargets="1 ext4 2 ext3 3 ext2"
-	[[ -n $BTRFS ]] && FilesystemTargets=$FilesystemTargets" 4 $BTRFS"
+	[[ -n $BTRFS && `uname -r | grep '^4.' ` ]] && FilesystemTargets=$FilesystemTargets" 4 $BTRFS"
 	FilesystemOptions=($FilesystemTargets)
 
 	FilesystemCmd=(dialog --title "Select filesystem type for $1" --backtitle "$backtitle" --menu "\n$infos" 10 60 16)

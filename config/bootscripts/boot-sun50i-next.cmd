@@ -11,9 +11,9 @@ setenv rootfstype "ext4"
 setenv console "both"
 
 # Print boot source
-itest.b *0x28 == 0x00 && echo "U-boot loaded from SD"
-itest.b *0x28 == 0x02 && echo "U-boot loaded from eMMC or secondary SD"
-itest.b *0x28 == 0x03 && echo "U-boot loaded from SPI"
+itest.b *0x10028 == 0x00 && echo "U-boot loaded from SD"
+itest.b *0x10028 == 0x02 && echo "U-boot loaded from eMMC or secondary SD"
+itest.b *0x10028 == 0x03 && echo "U-boot loaded from SPI"
 
 echo "Boot script loaded from ${devtype}"
 
@@ -33,6 +33,19 @@ if test "${console}" = "serial" || test "${console}" = "both"; then setenv conso
 
 setenv bootargs "root=${rootdev} rootwait rootfstype=${rootfstype} ${consoleargs} panic=10 consoleblank=0 enforcing=0 loglevel=${verbosity} ${extraargs} ${extraboardargs}"
 load ${devtype} 0 ${fdt_addr_r} /boot/dtb/allwinner/${fdtfile} || load ${devtype} 0 ${fdt_addr_r} /dtb/allwinner/${fdtfile}
+fdt addr ${fdt_addr_r}
+fdt resize
+for overlay_file in ${overlays}; do
+	if load ${devtype} 0 ${load_addr} boot/dtb/allwinner/overlays/${overlay_file}.dtbo || load ${devtype} 0 ${load_addr} dtb/allwinner/overlays/${overlay_file}.dtbo; then
+		echo "Applying DT overlay ${overlay_file}.dtbo"
+		fdt apply ${load_addr}
+	fi
+done
+if test "${mmc0-broken-cd}" = "on"; then
+	fdt rm /soc/mmc@1c0f000/ cd-gpios
+	fdt rm /soc/mmc@1c0f000/ cd-inverted
+	fdt set /soc/mmc@1c0f000/ broken-cd
+fi
 load ${devtype} 0 ${ramdisk_addr_r} /boot/uInitrd || load ${devtype} 0 ${ramdisk_addr_r} uInitrd
 load ${devtype} 0 ${kernel_addr_r} /boot/Image || load ${devtype} 0 ${kernel_addr_r} Image
 booti ${kernel_addr_r} ${ramdisk_addr_r} ${fdt_addr_r}
