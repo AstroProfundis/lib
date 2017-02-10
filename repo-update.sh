@@ -30,4 +30,9 @@ addtorepo
 cp bin/armbian.key ../output/repository/public
 cd ../output/repository/public
 
+# add SSH key to root
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC5ghcl4qRClulj3KM4pZfKrUfB0m1DB5XVwRNbQARYEs5aAMJ/zrS1MF0lvEmcd614mq/qtp4xagAyVwg2FaqifaNlxdw1cMjfbhjLr2hHUvk8uRjQRb2mhq1/Xls3XcQGC7XNQ0+63gir44TPghtvHb84Tjh2Lh3jhjP/z9kcBa6EN8lrg0DYp36+wrV2OTj+kWOxiKK33gzD5TCtkjbcBrLq5bZmfA7vniDT7Adpw5RhRBqomynbC5CuJYUThg/m44bq0FB6gIV5pagARJLE/F6Eht1M+K/Cl38XYip8YUL3zQ3P0BVydxO/F1z5S2qnwgAS4pYtaYJGpDFETEAF allen@ubuntu-builder' | cat >> /root/.ssh/authorized_keys
+
 echo "done."
