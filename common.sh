@@ -51,7 +51,7 @@ compile_uboot()
 	if [[ -z $toolchain && -n $UBOOT_NEEDS_GCC ]] && ! check_toolchain "$UBOOT_COMPILER" "$UBOOT_NEEDS_GCC"; then
 		# try to find required toolchain if alt was not found
 		toolchain=$(find_toolchain "$UBOOT_COMPILER" "$UBOOT_NEEDS_GCC")
-		[[ -z $toolchain ]] && exit_with_error "Could not find required toolchain" "${compiler}gcc $expression"
+		[[ -z $toolchain ]] && exit_with_error "Could not find required toolchain" "${UBOOT_COMPILER}gcc $UBOOT_NEEDS_GCC"
 	fi
 
 	display_alert "Compiler version" "${UBOOT_COMPILER}gcc $(eval ${toolchain:+env PATH=$toolchain:$PATH} ${UBOOT_COMPILER}gcc -dumpversion)" "info"
@@ -87,7 +87,7 @@ compile_uboot()
 
 		[[ -f .config ]] && sed -i 's/CONFIG_LOCALVERSION=""/CONFIG_LOCALVERSION="-armbian"/g' .config
 		[[ -f .config ]] && sed -i 's/CONFIG_LOCALVERSION_AUTO=.*/# CONFIG_LOCALVERSION_AUTO is not set/g' .config
-		[[ -f tools/logos/udoo.bmp ]] && cp $SRC/lib/bin/armbian-u-boot.bmp tools/logos/udoo.bmp
+		[[ -f tools/logos/udoo.bmp ]] && cp $SRC/lib/bin/splash/udoo.bmp tools/logos/udoo.bmp
 		touch .scmversion
 
 		# $BOOTDELAY can be set in board family config, ensure autoboot can be stopped even if set to 0
@@ -203,7 +203,7 @@ compile_kernel()
 	if [[ -z $toolchain && -n $KERNEL_NEEDS_GCC ]] && ! check_toolchain "$KERNEL_COMPILER" "$KERNEL_NEEDS_GCC"; then
 		# try to find required toolchain if alt was not found
 		toolchain=$(find_toolchain "$KERNEL_COMPILER" "$KERNEL_NEEDS_GCC")
-		[[ -z $toolchain ]] && exit_with_error "Could not find required toolchain" "${KERNEL_COMPILER}gcc $expression"
+		[[ -z $toolchain ]] && exit_with_error "Could not find required toolchain" "${KERNEL_COMPILER}gcc $KERNEL_NEEDS_GCC"
 	fi
 
 	display_alert "Compiler version" "${KERNEL_COMPILER}gcc $(eval ${toolchain:+env PATH=$toolchain:$PATH} ${KERNEL_COMPILER}gcc -dumpversion)" "info"

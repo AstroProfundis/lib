@@ -12,6 +12,7 @@ setenv console "both"
 setenv disp_mem_reserves "off"
 setenv disp_mode "1920x1080p60"
 setenv rootfstype "ext4"
+setenv docker_optimizations "on"
 
 # Print boot source
 itest.b *0x28 == 0x00 && echo "U-boot loaded from SD"
@@ -20,9 +21,12 @@ itest.b *0x28 == 0x03 && echo "U-boot loaded from SPI"
 
 echo "Boot script loaded from ${devtype}"
 
-if load ${devtype} 0 ${load_addr} /boot/armbianEnv.txt || load ${devtype} 0 ${load_addr} armbianEnv.txt; then
+if test -e ${devtype} 0 ${prefix}armbianEnv.txt; then
+	load ${devtype} 0 ${load_addr} ${prefix}armbianEnv.txt
 	env import -t ${load_addr} ${filesize}
 fi
+
+if test "${logo}" = "disabled"; then setenv logo "logo.nologo"; fi
 
 if test "${console}" = "display" || test "${console}" = "both"; then setenv consoleargs "console=tty1"; fi
 if test "${console}" = "serial" || test "${console}" = "both"; then setenv consoleargs "${consoleargs} console=ttyS0,115200"; fi
@@ -31,30 +35,49 @@ if test "${console}" = "serial" || test "${console}" = "both"; then setenv conso
 # mmc 0 is always mapped to device u-boot (2016.09+) was loaded from
 if test "${devtype}" = "mmc"; then part uuid mmc 0:1 partuuid; fi
 
-setenv bootargs "root=${rootdev} rootwait rootfstype=${rootfstype} ${consoleargs} cgroup_enable=memory swapaccount=1 hdmi.audio=EDID:0 disp.screen0_output_mode=${disp_mode} panic=10 consoleblank=0 enforcing=0 loglevel=${verbosity} ubootpart=${partuuid} ubootsource=${devtype} ${extraargs} ${extraboardargs}"
+setenv bootargs "root=${rootdev} rootwait rootfstype=${rootfstype} ${consoleargs} hdmi.audio=EDID:0 disp.screen0_output_mode=${disp_mode} panic=10 consoleblank=0 loglevel=${verbosity} ubootpart=${partuuid} ubootsource=${devtype} ${extraargs} ${extraboardargs}"
 
 if test "${disp_mem_reserves}" = "off"; then setenv bootargs "${bootargs} sunxi_ve_mem_reserve=0 sunxi_g2d_mem_reserve=0 sunxi_fb_mem_reserve=16"; fi
+if test "${docker_optimizations}" = "on"; then setenv bootargs "${bootargs} cgroup_enable=memory swapaccount=1"; fi
 
-load ${devtype} 0 ${ramdisk_addr_r} /boot/uInitrd || load ${devtype} 0 ${ramdisk_addr_r} uInitrd
-load ${devtype} 0 ${kernel_addr_r} /boot/zImage || load ${devtype} 0 ${kernel_addr_r} zImage
+load ${devtype} 0 ${ramdisk_addr_r} ${prefix}uInitrd
+load ${devtype} 0 ${kernel_addr_r} ${prefix}zImage
 
-if load ${devtype} 0 0x00000000 /boot/.next || load ${devtype} 0 0x00000000 .next; then
-	load ${devtype} 0 ${fdt_addr_r} /boot/dtb/${fdtfile} || load ${devtype} 0 ${fdt_addr_r} /dtb/${fdtfile}
+if test -e ${devtype} 0 "${prefix}.next"; then
+	echo "Found mainline kernel configuration"
+	load ${devtype} 0 ${fdt_addr_r} ${prefix}dtb/${fdtfile}
 	fdt addr ${fdt_addr_r}
 	fdt resize
 	for overlay_file in ${overlays}; do
-		if load ${devtype} 0 ${load_addr} boot/dtb/overlay/${overlay_file}.dtbo || load ${devtype} 0 ${load_addr} dtb/overlay/${overlay_file}.dtbo; then
-			echo "Applying DT overlay ${overlay_file}.dtbo"
+		if load ${devtype} 0 ${load_addr} ${prefix}dtb/overlay/${overlay_prefix}-${overlay_file}.dtbo; then
+			echo "Applying kernel provided DT overlay ${overlay_prefix}-${overlay_file}.dtbo"
+			fdt apply ${load_addr} || setenv overlay_error "true"
+		fi
+	done
+	for overlay_file in ${user_overlays}; do
+		if load ${devtype} 0 ${load_addr} ${prefix}overlay-user/${overlay_file}.dtbo; then
+			echo "Applying user provided DT overlay ${overlay_file}.dtbo"
 			fdt apply ${load_addr} || setenv overlay_error "true"
 		fi
 	done
 	if test "${overlay_error}" = "true"; then
 		echo "Error applying DT overlays, restoring original DT"
-		load ${devtype} 0 ${fdt_addr_r} /boot/dtb/${fdtfile} || load ${devtype} 0 ${fdt_addr_r} /dtb/${fdtfile}
+		load ${devtype} 0 ${fdt_addr_r} ${prefix}dtb/${fdtfile}
+	else
+		if load ${devtype} 0 ${load_addr} ${prefix}dtb/overlay/${overlay_prefix}-fixup.scr; then
+			echo "Applying kernel provided DT fixup script (${overlay_prefix}-fixup.scr)"
+			source ${load_addr}
+		fi
+		if test -e ${devtype} 0 ${prefix}fixup.scr; then
+			load ${devtype} 0 ${load_addr} fixup.scr
+			echo "Applying user provided fixup script (fixup.scr)"
+			source ${load_addr}
+		fi
 	fi
 	bootz ${kernel_addr_r} ${ramdisk_addr_r} ${fdt_addr_r}
 else
-	load ${devtype} 0 ${fdt_addr_r} /boot/script.bin || load ${devtype} 0 ${fdt_addr_r} script.bin
+	echo "Found legacy kernel configuration"
+	load ${devtype} 0 ${fdt_addr_r} ${prefix}script.bin
 	bootz ${kernel_addr_r} ${ramdisk_addr_r}
 fi
 

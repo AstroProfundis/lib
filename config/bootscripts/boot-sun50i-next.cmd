@@ -9,6 +9,7 @@ setenv rootdev "/dev/mmcblk0p1"
 setenv verbosity "1"
 setenv rootfstype "ext4"
 setenv console "both"
+setenv docker_optimizations "on"
 
 # Print boot source
 itest.b *0x10028 == 0x00 && echo "U-boot loaded from SD"
@@ -31,12 +32,15 @@ fi
 if test "${console}" = "display" || test "${console}" = "both"; then setenv consoleargs "console=tty1"; fi
 if test "${console}" = "serial" || test "${console}" = "both"; then setenv consoleargs "${consoleargs} console=ttyS0,115200"; fi
 
-setenv bootargs "root=${rootdev} rootwait rootfstype=${rootfstype} ${consoleargs} panic=10 consoleblank=0 enforcing=0 loglevel=${verbosity} ${extraargs} ${extraboardargs}"
+setenv bootargs "root=${rootdev} rootwait rootfstype=${rootfstype} ${consoleargs} panic=10 consoleblank=0 loglevel=${verbosity} ${extraargs} ${extraboardargs}"
+
+if test "${docker_optimizations}" = "on"; then setenv bootargs "${bootargs} cgroup_enable=memory swapaccount=1"; fi
+
 load ${devtype} 0 ${fdt_addr_r} /boot/dtb/allwinner/${fdtfile} || load ${devtype} 0 ${fdt_addr_r} /dtb/allwinner/${fdtfile}
 fdt addr ${fdt_addr_r}
 fdt resize
 for overlay_file in ${overlays}; do
-	if load ${devtype} 0 ${load_addr} boot/dtb/allwinner/overlays/${overlay_file}.dtbo || load ${devtype} 0 ${load_addr} dtb/allwinner/overlays/${overlay_file}.dtbo; then
+	if load ${devtype} 0 ${load_addr} boot/dtb/allwinner/overlays/${overlay_prefix}-${overlay_file}.dtbo || load ${devtype} 0 ${load_addr} dtb/allwinner/overlays/${overlay_prefix}-${overlay_file}.dtbo; then
 		echo "Applying DT overlay ${overlay_file}.dtbo"
 		fdt apply ${load_addr}
 	fi

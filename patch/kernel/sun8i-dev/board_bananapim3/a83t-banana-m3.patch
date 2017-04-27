@@ -11,7 +11,7 @@ index 309cce5..64ad31f 100644
 	sun8i-h3-orangepi-2.dtb \
  	sun8i-h3-orangepi-one.dtbs \
 diff --git a/arch/arm/boot/dts/sun8i-a83t-sinovoip-bpi-m3.dts b/arch/arm/boot/dts/sun8i-a83t-sinovoip-bpi-m3.dts
-new file mode 100755
+new file mode 100644
 index 0000000..d4db5f8
 --- /dev/null
 +++ b/arch/arm/boot/dts/sun8i-a83t-sinovoip-bpi-m3.dts
@@ -148,8 +148,6 @@ index 0000000..d4db5f8
 +	allwinner,pins = "PD24";
 +};
 diff --git a/arch/arm/boot/dts/sun8i-a83t.dtsi b/arch/arm/boot/dts/sun8i-a83t.dtsi
-old mode 100644
-new mode 100755
 index d3473f8..708d8b5
 --- a/arch/arm/boot/dts/sun8i-a83t.dtsi
 +++ b/arch/arm/boot/dts/sun8i-a83t.dtsi
