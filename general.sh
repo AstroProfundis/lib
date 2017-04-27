@@ -138,7 +138,9 @@ create_sources_list()
 	deb http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
 	#deb-src http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
 
-	deb http://security.debian.org/ ${release}/updates main contrib non-free
+	deb https://mirrors.tuna.tsinghua.edu.cn/debian-security/ ${release}/updates main contrib non-free
+	deb-src https://mirrors.tuna.tsinghua.edu.cn/debian-security/ ${release}/updates main contrib non-free
+	#deb http://security.debian.org/ ${release}/updates main contrib non-free
 	#deb-src http://security.debian.org/ ${release}/updates main contrib non-free
 	EOF
 	;;
@@ -550,9 +552,10 @@ prepare_host()
 		"https://releases.linaro.org/components/toolchain/binaries/4.9-2016.02/arm-linux-gnueabihf/gcc-linaro-4.9-2016.02-x86_64_arm-linux-gnueabihf.tar.xz"
 		"https://releases.linaro.org/components/toolchain/binaries/5.2-2015.11-2/arm-linux-gnueabihf/gcc-linaro-5.2-2015.11-2-x86_64_arm-linux-gnueabihf.tar.xz"
 		"https://releases.linaro.org/archive/14.04/components/toolchain/binaries/gcc-linaro-arm-linux-gnueabihf-4.8-2014.04_linux.tar.xz"
-		"https://releases.linaro.org/components/toolchain/binaries/6.3-2017.02/arm-linux-gnueabihf/gcc-linaro-6.3.1-2017.02-x86_64_arm-linux-gnueabihf.tar.xz"
-		"https://releases.linaro.org/components/toolchain/binaries/6.3-2017.02/aarch64-linux-gnu/gcc-linaro-6.3.1-2017.02-x86_64_aarch64-linux-gnu.tar.xz"
-		)
+                )
+		#"https://releases.linaro.org/components/toolchain/binaries/6.3-2017.02/arm-linux-gnueabihf/gcc-linaro-6.3.1-2017.02-x86_64_arm-linux-gnueabihf.tar.xz"
+		#"https://releases.linaro.org/components/toolchain/binaries/6.3-2017.02/aarch64-linux-gnu/gcc-linaro-6.3.1-2017.02-x86_64_aarch64-linux-gnu.tar.xz"
+		#)
 
 	for toolchain in ${toolchains[@]}; do
 		download_toolchain "$toolchain"
