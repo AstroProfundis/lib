@@ -13,6 +13,7 @@
 # use configuration files like config-default.conf to set the build configuration
 # check Armbian documentation for more info
 
+PROXY="--socks5 192.168.215.1:1233"
 SRC="$(dirname "$(realpath "${BASH_SOURCE}")")"
 # fallback for Trusty
 [[ -z "${SRC}" ]] && SRC="$(pwd)"
