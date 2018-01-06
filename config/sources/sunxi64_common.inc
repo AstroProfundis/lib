@@ -1,8 +1,7 @@
 ARCH=arm64
 KERNEL_IMAGE_TYPE=Image
 HAS_UUID_SUPPORT=yes
-OFFSET=2
-BOOTDELAY=0
+BOOTDELAY=1
 
 # Here we want to rename LINUXFAMILY from sun50iw1, sun50iw2, etc for next and dev branches
 # since this doesn't affect any stable images don't add any backwards compatibility hacks
@@ -22,14 +21,14 @@ case $BRANCH in
 
 	BOOTSOURCE=$MAINLINE_UBOOT_SOURCE
 	BOOTDIR=$MAINLINE_UBOOT_DIR
-	BOOTBRANCH=$MAINLINE_UBOOT_BRANCH
+	BOOTBRANCH='tag:v2017.11'
 	BOOTPATCHDIR='u-boot-sunxi'
 	UBOOT_USE_GCC='> 7.0'
 	UBOOT_TARGET_MAP=';;spl/sunxi-spl.bin u-boot.itb'
 	BOOTSCRIPT='boot-sun50i-next.cmd:boot.cmd'
 
 	KERNELSOURCE=$MAINLINE_KERNEL_SOURCE
-	KERNELBRANCH=$MAINLINE_KERNEL_BRANCH
+	KERNELBRANCH='branch:linux-4.14.y'
 	KERNELDIR=$MAINLINE_KERNEL_DIR
 	KERNEL_USE_GCC='> 7.0'
 	KERNELPATCHDIR='sunxi-next'
@@ -44,18 +43,26 @@ case $BRANCH in
 
 	BOOTSOURCE=$MAINLINE_UBOOT_SOURCE
 	BOOTDIR=$MAINLINE_UBOOT_DIR
-	BOOTBRANCH=$MAINLINE_UBOOT_BRANCH
+	BOOTBRANCH='tag:v2017.11'
 	BOOTPATCHDIR='u-boot-sunxi'
 	UBOOT_USE_GCC='> 7.0'
 	UBOOT_TARGET_MAP=';;spl/sunxi-spl.bin u-boot.itb'
 	BOOTSCRIPT='boot-sun50i-next.cmd:boot.cmd'
 
 	KERNELSOURCE='https://github.com/Icenowy/linux/'
-	KERNELBRANCH='branch:sunxi64-4.13.y'
+	KERNELBRANCH='branch:sunxi64-4.14.y'
 	KERNELDIR='linux-sun50i-dev'
 	KERNEL_USE_GCC='> 7.0'
 	;;
 esac
+
+family_tweaks()
+{
+	# execute specific tweaks function if present
+	[[ $(type -t family_tweaks_s) == function ]] && family_tweaks_s
+
+	[[ $BRANCH != default ]] && cp $SRC/packages/blobs/splash/armbian-u-boot-24.bmp $SDCARD/boot/boot.bmp
+}
 
 write_uboot_platform()
 {

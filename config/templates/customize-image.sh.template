@@ -27,7 +27,8 @@ Main() {
 			;;
 		stretch)
 			# your code here
-		;;
+			# InstallOpenMediaVault # uncomment to get an OMV 4 image
+			;;
 	esac
 } # Main
 
@@ -150,20 +151,10 @@ InstallOpenMediaVault() {
 	/usr/sbin/omv-mkconf timezone \
 	lsusb | egrep -q "0b95:1790|0b95:178a|0df6:0072" || sed -i "/ax88179_178a/d" /etc/modules' /etc/init.d/firstrun
 	sed -i '/systemctl\ disable\ firstrun/a \
-	sleep 30 \
-	# set static network configuration based on DHCP settings \
-	dnsnameservers="$(awk -F" " \x27/^nameserver/ {print $2}\x27 /etc/resolv.conf)" \
-	dnssearch="$(awk -F" " \x27/^search/ {print $2}\x27 /etc/resolv.conf)" \
-	netmask="$(/sbin/ifconfig eth0 | awk -F":" \x27/inet addr:/ {print $4}\x27)" \
-	gateway="$(/sbin/ip route | awk -F" " \x27/^default via/ {print $3}\x27)" \
-	address="$(/bin/hostname -I | grep -v \x27127.0.0.1\x27)" \
-	xmlstarlet ed -L -s /config/system/network/interfaces -t elem -n interface -s /config/system/network/interfaces/interface -t elem -n uuid -v 4fa8fd59-e5be-40f6-a76d-be6a73ed1407 -s /config/system/network/interfaces/interface -t elem -n type -v ethernet -s /config/system/network/interfaces/interface -t elem -n devicename -v eth0 -s /config/system/network/interfaces/interface -t elem -n method -v static -s /config/system/network/interfaces/interface -t elem -n address -v "${address}" -s /config/system/network/interfaces/interface -t elem -n netmask -v "${netmask}" -s /config/system/network/interfaces/interface -t elem -n gateway -v "${gateway}" -s /config/system/network/interfaces/interface -t elem -n dnsnameservers -v "${dnsnameservers}" -s /config/system/network/interfaces/interface -t elem -n dnssearch -v "${dnssearch}" -s /config/system/network/interfaces/interface -t elem -n method6 -v manual /etc/openmediavault/config.xml \
-	/usr/sbin/omv-mkconf interfaces \
-	sync && reboot' /etc/init.d/firstrun
+	sleep 30 && sync && reboot' /etc/init.d/firstrun
 
-	# add USB3 Gigabit Ethernet and NAS Dock support
+	# add USB3 Gigabit Ethernet support
 	echo -e "r8152\nax88179_178a" >>/etc/modules
-	egrep -q "air|neo|zero" <<<${BOARD} && echo "overlays=usbhost0 usbhost2 usbhost3" >>/boot/armbianEnv.txt
 
 	# Special treatment for ODROID-XU4 (and later Amlogic S912, RK3399 and other big.LITTLE
 	# based devices). Move all NAS daemons to the big cores.
@@ -207,7 +198,9 @@ InstallOpenMediaVault() {
 	echo ':msg, contains, "netsnmp_assert" ~' >>/etc/rsyslog.d/omv-armbian.conf
 	echo ':msg, contains, "Failed to initiate sched scan" ~' >>/etc/rsyslog.d/omv-armbian.conf
 
+	# clean up and force password change on first boot
 	umount /proc/mdstat
+	chage -d 0 root
 } # InstallOpenMediaVault
 
 Main "$@"

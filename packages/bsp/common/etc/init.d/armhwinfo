@@ -9,8 +9,9 @@
 ### END INIT INFO
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+my_name="${0##*/}"
 
-# Releases following 5.32 rely solely on /etc/armbian-release to optimize settings
+# Read in basic OS image information
 . /etc/armbian-release
 
 collect_information() {
@@ -24,7 +25,7 @@ collect_information() {
 } # collect_information
 
 set_io_scheduler() {
-	for i in $( lsblk -idn -o NAME ); do
+	for i in $( lsblk -idn -o NAME | grep -v zram ); do
 		read ROTATE </sys/block/$i/queue/rotational
 		case ${ROTATE} in
 			1) # mechanical drives
@@ -62,9 +63,11 @@ prepare_temp_monitoring() {
 		ln -fs /sys/devices/platform/a20-tp-hwmon/temp1_input /etc/armbianmonitor/datasources/soctemp
 	else
 		# all other boards/kernels use the same sysfs node except of Actions Semi S500:
-		[[ ${LINUXFAMILY} == s500 ]] && THERMAL_ZONE="thermal_zone1" || THERMAL_ZONE="thermal_zone0"
+		[[ ${BOARDFAMILY} == s500 ]] && THERMAL_ZONE="thermal_zone1" || THERMAL_ZONE="thermal_zone0"
 		ln -fs /sys/devices/virtual/thermal/${THERMAL_ZONE}/temp /etc/armbianmonitor/datasources/soctemp
 	fi
+	# remove the soctemp node on platforms where kernel support is not yet ready for thermal readouts
+	cat /etc/armbianmonitor/datasources/soctemp >/dev/null 2>&1 || rm /etc/armbianmonitor/datasources/soctemp
 } # prepare_temp_monitoring
 
 prepare_board() {
@@ -90,8 +93,8 @@ prepare_board() {
 		done
 	fi
 
-	# IRQ distribution based on $LINUXFAMILY and/or $BOARD_NAME
-	case ${LINUXFAMILY} in
+	# IRQ distribution based on $BOARDFAMILY and/or $BOARD_NAME
+	case ${BOARDFAMILY} in
 		cubox|udoo*) # i.MX6 boards: send Ethernet to cpu3, MMC to cpu1/cpu2 (when available)
 			echo 2 >/proc/irq/$(awk -F":" "/mmc0/ {print \$1}" </proc/interrupts | sed 's/\ //g' | head -1)/smp_affinity 2>/dev/null
 			echo 4 >/proc/irq/$(awk -F":" "/mmc1/ {print \$1}" </proc/interrupts | sed 's/\ //g' | head -1)/smp_affinity 2>/dev/null
@@ -110,7 +113,7 @@ prepare_board() {
 			echo 3 >/proc/irq/$(awk -F":" "/eth0/ {print \$1}" </proc/interrupts | sed 's/\ //g')/smp_affinity_list
 			echo 7 >/sys/class/net/eth0/queues/rx-0/rps_cpus
 			;;
-		odroidc2|meson64) # S905: both kernels: send eth0 to cpu3, mmc/usb2 to cpu2 and usb1 to cpu1
+		odroidc2|meson64) # S905/S905X/S912: both kernels: send eth0 to cpu3, mmc/usb2 to cpu2 and usb1 to cpu1
 			# Basics: http://forum.odroid.com/viewtopic.php?f=115&t=8121#p65777
 			for i in $(awk -F':' '/sd_emmc|usb2/{print $1}' </proc/interrupts | sed 's/\ //g'); do
 				echo 1 >/proc/irq/$i/smp_affinity_list
@@ -231,7 +234,7 @@ prepare_board() {
 						echo 8 >/proc/irq/$i/smp_affinity
 					done
 					;;
-				"Beelink X2")
+				"Beelink X2"|"Orange Pi R1")
 					# Wifi module reload workaround / fix
 					[[ -n $(lsmod | grep 8189es) ]] && rmmod 8189es && modprobe 8189es
 					# Send SDIO to cpu1, USB to cpu2, Ethernet to cpu3
@@ -281,18 +284,26 @@ log_hardware_info() {
 	cat /proc/cpuinfo >>${Log}
 	echo -e "\n### meminfo:\n" >>${Log}
 	cat /proc/meminfo >>${Log}
-	echo -e "\n### ifconfig:\n" >>${Log}
-	ifconfig >>${Log}
+	if [ -x /sbin/ip ]; then
+		echo -e "\n### ip addr:\n" >>${Log}
+		/sbin/ip r s >>${Log} ; /sbin/ip a >>${Log}
+		echo " " >>${Log}
+	else
+		echo -e "\n### ifconfig:\n" >>${Log}
+		ifconfig >>${Log}
+	fi
 	echo -e "### partitions:\n" >>${Log}
 	egrep -v " ram| zram" /proc/partitions >>${Log}
 	echo -e "\n### df:\n" >>${Log}
 	df -h >>${Log}
 	which zpool >/dev/null 2>&1 && echo -e "\n### zpools:\n\n$(zpool list)\n\n### zfs datasets:\n\n$(zfs list)" >>${Log}
+	echo -e "\n### lsblk:\n" >>${Log}
+	lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,UUID | grep -v "^zram" >>${Log}
 	echo -e "\n### mtab:\n" >>${Log}
 	egrep '^/dev/|\ zfs\ ' /etc/mtab | egrep -v "log2ram|folder2ram" | sort >>${Log}
 	[[ -e /boot/script.bin ]] && echo -e "\n### /boot/script.bin --> $(readlink /boot/script.bin)" >>${Log}
-	get_flash_information >>${Log} &
-	(sleep 30 && echo -e "\n### interrupts:\n$(cat /proc/interrupts)" >>${Log}) &
+	get_flash_information >>${Log}
+	(echo -e "\n### Boot system health:\n" >>${Log} ; armbianmonitor -s | egrep "^Time|^[0-9]" >>${Log}) &
 } # log_hardware_info
 
 get_flash_information() {
@@ -362,6 +373,31 @@ add_usb_storage_quirks() {
 	echo "usbstoragequirks=${USBQUIRKS}" >>/boot/armbianEnv.txt
 } # add_usb_storage_quirks
 
+activate_zram() {
+	# Do not interfere with already present config-zram package
+	dpkg -l | grep -q 'zram-config' && return
+
+	# Load zram module with n instances (one per CPU core, 4 are the maximum)
+	cpu_cores=$(grep -c '^processor' /proc/cpuinfo | sed 's/^0$/1/')
+	[[ ${cpu_cores} -gt 4 ]] && zram_devices=4 || zram_devices=${cpu_cores}
+	module_args="$(modinfo zram | awk -F" " '/num_devices/ {print $2}' | cut -f1 -d:)"
+	[[ -n ${module_args} ]] && modprobe zram ${module_args}=${zram_devices} || return
+
+	# Use half of the real memory by default --> 1/${ram_divisor}
+	ram_divisor=2
+	mem_info=$(LC_ALL=C free -w 2>/dev/null | grep "^Mem" || LC_ALL=C free | grep "^Mem")
+	memory_total=$(awk '{printf("%d",$2*1024)}' <<<${mem_info})
+	mem_per_zram_device=$(( ${memory_total} / ${zram_devices} / ${ram_divisor} ))
+
+	for (( i=0; i<zram_devices; i++ )); do
+		echo -n ${mem_per_zram_device} > /sys/block/zram${i}/disksize
+		[[ -f /sys/block/zram${i}/comp_algorithm ]] && echo lz4 >/sys/block/zram${i}/comp_algorithm 2>/dev/null
+		mkswap /dev/zram${i}
+		swapon -p 5 /dev/zram${i}
+	done
+	echo -e "\n### Activated ${zram_devices} zram swap devices with ${mem_per_zram_device} MB each\n" >>${Log}
+} # activate_zram
+
 case $1 in
 	*start*)
 		# set optimal disk scheduler settings
@@ -376,9 +412,10 @@ case $1 in
 		# hardware preparation
 		prepare_board &
 		prepare_temp_monitoring &
+		# activate_zram &
 
 		# display message, log hardware id to file, write log
-		echo -e "[\e[0;32m ok \x1B[0m] Starting ARM hardware info: $ID (${VERSION})"
+		echo -e "[\e[0;32m ok \x1B[0m] Starting ARM hardware info: ${BOARD_NAME} (${VERSION})"
 		echo $BOARD_NAME >/var/run/machine.id # we should leave this, maybe users depend on it
 		if [ $? -ne 0 ]; then
 			# most probably readonly fs. We'll try to warn the user.
@@ -391,7 +428,7 @@ case $1 in
 		add_usb_storage_quirks
 		;;
 	*stop*)
-		case ${LINUXFAMILY} in
+		case ${BOARDFAMILY} in
 			sun?i)
 			# redefine green led to blink until shutdown, try to switch OTG port to host
 			(echo heartbeat >/sys/class/leds/*green*/trigger) 2>/dev/null
@@ -404,6 +441,7 @@ case $1 in
 		/sbin/modprobe -r $(cut -f1 -d' ' </proc/modules)
 		# shutdown logging
 		echo -e "\n### shutdown:\n\n$(iostat -p zram0)\n\n$(vmstat -w)\n\n$(free -h)\n\n$(dmesg | tail -n 100)" >>/var/log/armhwinfo.log
+		logger -i -t ${my_name} "Sane shutdown"
 		sync
 		;;
 esac
