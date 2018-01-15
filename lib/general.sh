@@ -136,8 +136,8 @@ create_sources_list()
 	deb http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
 	#deb-src http://${DEBIAN_MIRROR} ${release}-backports main contrib non-free
 
-	deb http://mirrors.tuna.tsinghua.edu.cn/debian-security/ ${release}/updates main contrib non-free
-	deb-src http://mirrors.tuna.tsinghua.edu.cn/debian-security/ ${release}/updates main contrib non-free
+	deb http://mirrors.ustc.edu.cn/debian-security/ ${release}/updates main contrib non-free
+	deb-src http://mirrors.ustc.edu.cn/debian-security/ ${release}/updates main contrib non-free
 	#deb http://security.debian.org/ ${release}/updates main contrib non-free
 	#deb-src http://security.debian.org/ ${release}/updates main contrib non-free
 	EOF

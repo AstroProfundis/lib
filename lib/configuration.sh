@@ -162,8 +162,8 @@ case $RELEASE in
 	;;
 esac
 
-DEBIAN_MIRROR='mirrors.tuna.tsinghua.edu.cn/debian'
-UBUNTU_MIRROR='mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/'
+DEBIAN_MIRROR='mirrors.ustc.edu.cn/debian'
+UBUNTU_MIRROR='mirrors.ustc.edu.cn/ubuntu-ports/'
 
 # For user override
 if [[ -f $SRC/userpatches/lib.config ]]; then
