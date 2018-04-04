@@ -248,9 +248,9 @@ fetch_from_repo()
 		# remote was updated, fetch and check out updates
 		display_alert "Fetching updates"
 		case $ref_type in
-			branch) git fetch --depth 1 origin $ref_name ;;
-			tag) git fetch --depth 1 origin tags/$ref_name ;;
-			head) git fetch --depth 1 origin HEAD ;;
+			branch) $PROXYCHAINS git fetch --depth 1 origin $ref_name ;;
+			tag) $PROXYCHAINS git fetch --depth 1 origin tags/$ref_name ;;
+			head) $PROXYCHAINS git fetch --depth 1 origin HEAD ;;
 		esac
 		display_alert "Checking out"
 		git checkout -f -q FETCH_HEAD

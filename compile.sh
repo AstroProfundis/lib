@@ -14,6 +14,7 @@
 # check Armbian documentation for more info
 
 PROXY="--socks5 192.168.215.1:1233"
+PROXYCHAINS="proxychains"
 SRC="$(dirname "$(realpath "${BASH_SOURCE}")")"
 # fallback for Trusty
 [[ -z "${SRC}" ]] && SRC="$(pwd)"
